@@ -37,7 +37,7 @@ void TxExecutor::read(const uint64_t key) {
   /**
    * read-own-writes or re-read from local read set.
    */
-  if (searchWriteSet(key) || searchReadSet(key)) goto FINISH_TREAD;
+  if (searchWriteSet(key) || searchReadSet(key)) goto FINISH_READ;
 
   /**
    * Search versions from data structure.
@@ -102,6 +102,8 @@ void TxExecutor::write(const uint64_t key){
   uint64_t start = rdtscp();
 #endif  // if ADD_ANALYSIS
   Tuple *tuple;
+  bool rmw;
+  rmw = false;
   Version *expected(nullptr), *ver, *later_ver, *new_ver;
   
   /**
@@ -282,7 +284,7 @@ void TxExecutor::abort(){
   read_set_.clear();
   write_set_.clear();
 
-  this->wts_.set_clockBoost(CLOKC_PER_US);
+  this->wts_.set_clockBoost(FLAGS_clocks_per_us);
   
 }
 

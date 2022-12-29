@@ -105,6 +105,4 @@ main(int argc, char *argv[])
   deleteDB();
 
   return 0;
-} catch (std::bad_alloc&) {
-    ERR;
 }

@@ -98,6 +98,7 @@ void displayParameter() {
     cout << "#FLAGS_extime:\t\t\t\t" << FLAGS_extime << endl;
     cout << "#FLAGS_io_time_ns:\t\t\t" << FLAGS_io_time_ns << endl;
     cout << "#FLAGS_max_ope:\t\t\t\t" << FLAGS_max_ope << endl;
+    cout << "#FLAGS_rmw:\t\t\t\t" << FLAGS_rmw << endl;
     cout << "#FLAGS_rratio:\t\t\t\t" << FLAGS_rratio << endl;
     cout << "#FLAGS_thread_num:\t\t\t" << FLAGS_thread_num << endl;
     cout << "#FLAGS_ycsb:\t\t\t\t" << FLAGS_ycsb << endl;

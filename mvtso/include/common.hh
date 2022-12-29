@@ -8,7 +8,6 @@
 #include "../../include/cache_line_size.hh"
 #include "../../include/int64byte.hh"
 #include "../../include/masstree_wrapper.hh"
-#include "lock.hh"
 #include "tuple.hh"
 #include "version.hh"
 
@@ -35,6 +34,8 @@ DEFINE_uint64(extime, 3, "Execution time[sec]."); // NOLINT
 DEFINE_uint64(io_time_ns, 5, "Delay inserted instead of IO."); // NOLINT
 DEFINE_uint64(max_ope, 10, // NOLINT
               "Total number of operations per single transaction.");
+DEFINE_bool(rmw, false, // NOLINT
+            "True means read modify write, false means blind write.");
 DEFINE_uint64(rratio, 50, "read ratio of single transaction."); // NOLINT
 DEFINE_uint64(thread_num, 10, "Total number of worker threads."); // NOLINT
 DEFINE_uint64(tuple_num, 1000000, "Total number of records."); // NOLINT
@@ -46,6 +47,7 @@ DECLARE_uint64(clocks_per_us);
 DECLARE_uint64(extime);
 DECLARE_uint64(io_time_ns);
 DECLARE_uint64(max_ope);
+DECLARE_bool(rmw);
 DECLARE_uint64(rratio);
 DECLARE_uint64(thread_num);
 DECLARE_uint64(tuple_num);

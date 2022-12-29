@@ -56,9 +56,9 @@ public:
         break;
     }
 
-    read_set_.reserve(NUM_OPERATION);
-    write_set_.reserve(NUM_OPERATION);
-    pro_set_.reserve(NUM_OPERATION);
+    read_set_.reserve(FLAGS_max_ope);
+    write_set_.reserve(FLAGS_max_ope);
+    pro_set_.reserve(FLAGS_max_ope);
 
     genStringRepeatedNumber(write_val_, VAL_SIZE, thid_);
 
