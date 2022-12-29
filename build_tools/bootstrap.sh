@@ -1,5 +1,5 @@
 # prepare for masstree
-cd third_party/masstree
+cd ../third_party/masstree
 ./bootstrap.sh
 ./configure --disable-assertions
 make clean
