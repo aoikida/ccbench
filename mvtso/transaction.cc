@@ -19,6 +19,8 @@
 #include "../include/masstree_wrapper.hh"
 #include "../include/tsc.hh"
 
+#define delta  0
+
 void TxExecutor::begin() { 
   
   this->status_ = TransactionStatus::inflight; 
@@ -34,6 +36,7 @@ void TxExecutor::read(const uint64_t key) {
   uint64_t start = rdtscp();
 #endif  // if ADD_ANALYSIS
 
+  Tuple *tuple;
   /**
    * read-own-writes or re-read from local read set.
    */
@@ -43,22 +46,21 @@ void TxExecutor::read(const uint64_t key) {
    * Search versions from data structure.
    */
 #if MASSTREE_USE
-  Tuple *tuple;
   tuple = MT.get_value(key);
   // read request to remote replica
   usleep(1);
 
 #if ADD_ANALYSIS
-  ++cres_->local_tree_traversal_;
+  ++mres_->local_tree_traversal_;
 #endif  // if ADD_ANALYSIS
 
 #else
-  Tuple *tuple = get_tuple(Table, key);
+  tuple = get_tuple(Table, key);
   //read request to remote replica
   usleep(1);
 #endif  // if MASSTREE_USE
 
-
+ 
   // Search version 
   Version *ver, *later_ver;
   later_ver = nullptr;
@@ -67,7 +69,8 @@ void TxExecutor::read(const uint64_t key) {
   //read operation read latest version less than its timestamp.
   while (ver->ldAcqWts() > this->wts_.ts_) { 
     later_ver = ver;               
-    ver = ver->ldAcqNext(); 
+    ver = ver->ldAcqNext();
+    if (ver == nullptr) break;
   }
 
   //validate version of tuple
@@ -84,40 +87,37 @@ void TxExecutor::read(const uint64_t key) {
 
   read_set_.emplace_back(key, tuple, later_ver, ver);
 
+  dependency_set_.emplace_back(this->wts_.ts_, ver);
+
 #if ADD_ANALYSIS
-  cres_->local_read_latency_ += rdtscp() - start;
+  mres_->local_read_latency_ += rdtscp() - start;
 #endif  // if ADD_ANALYSIS
 
 FINISH_READ:
 
 #if ADD_ANALYSIS
-  cres_->local_read_latency_ += rdtscp() - start;
+  mres_->local_read_latency_ += rdtscp() - start;
 #endif
 
   return;
 }
 
 void TxExecutor::write(const uint64_t key){
+  
 #if ADD_ANALYSIS
   uint64_t start = rdtscp();
 #endif  // if ADD_ANALYSIS
   Tuple *tuple;
-  bool rmw;
-  rmw = false;
-  Version *expected(nullptr), *ver, *later_ver, *new_ver;
-  
-  /**
-   * Update  from local write set.
-   * Special treat due to performance.
-   */
 
+  Version *expected(nullptr), *ver, *later_ver, *new_ver, *pre_ver;
+  
   if (searchWriteSet(key)) goto FINISH_WRITE;
 
 #if MASSTREE_USE
   tuple = MT.get_value(key);
 
 #if ADD_ANALYSIS
-  ++cres_->local_tree_traversal_;
+  ++mres_->local_tree_traversal_;
 #endif  // if ADD_ANALYSIS
 
 #else
@@ -131,25 +131,36 @@ void TxExecutor::write(const uint64_t key){
   while (ver->ldAcqWts() > this->wts_.ts_) {
     later_ver = ver;
     ver = ver->ldAcqNext();
+    if (ver == nullptr) break;
   }
 
   new_ver = newVersionGeneration(tuple);
 
+  
   //add new version in version list
-  for(;;){
-    if (later_ver) { //add version in list (except latest) 
-      ver = later_ver->ldAcqNext();
-      new_ver->strRelNext(ver); 
-      if (later_ver->next_.compare_exchange_strong(ver, new_ver,
-                                                      memory_order_acq_rel,
-                                                      memory_order_acquire)){
-        break; 
+  for (;;) {
+    if (later_ver) {
+      pre_ver = later_ver;
+      ver = pre_ver->ldAcqNext();
+    } else {
+      ver = expected = tuple->ldAcqLatest();
+    }
+    //以下のwhile文が無いと、(ver == expected)の時、CASが失敗し続けてしまう可能性がある。
+    while (ver->ldAcqWts() > this->wts_.ts_) {
+      later_ver = ver;
+      pre_ver = ver;
+      ver = ver->ldAcqNext();
+    }
+
+    if (ver == expected) { //add latest version in version list
+      new_ver->strRelNext(expected);
+      if (tuple->latest_.compare_exchange_strong(expected, new_ver, memory_order_acq_rel, memory_order_acquire)) {
+        break;
       }
-    } else { //add version in latest in list
-      expected = tuple->ldAcqLatest();
-      new_ver->strRelNext(expected); 
-      if (tuple->latest_.compare_exchange_strong(expected, 
-          new_ver, memory_order_acq_rel,memory_order_acquire)){
+    } 
+    else { //add version in version list (except latest version)
+      new_ver->strRelNext(ver);
+      if (pre_ver->next_.compare_exchange_strong(ver, new_ver, memory_order_acq_rel, memory_order_acquire)) {
         break;
       }
     }
@@ -161,11 +172,10 @@ void TxExecutor::write(const uint64_t key){
 FINISH_WRITE:
 
 #if ADD_ANALYSIS
-  cres_->local_write_latency_ += rdtscp() - start;
+  mres_->local_write_latency_ += rdtscp() - start;
 #endif  // if ADD_ANALYSIS
-
   return;
-
+  
 }
 
 void TxExecutor::CCcheck(){
@@ -174,6 +184,32 @@ void TxExecutor::CCcheck(){
 #endif  // if ADD_ANALYSIS
 
   Version *ver, *later_ver;
+  uint64_t txts;
+
+  // byzantine timestamp check
+  // ts(T) > localclock + δ
+  if (this->wts_.ts_ > ((rdtscp() << (sizeof(thid_) * 8)) | thid_) + delta){
+    this->status_ = TransactionStatus::abort;
+    return;
+  }
+  
+
+  // byzantine dependency check
+  for (auto itr = dependency_set_.begin(); itr != dependency_set_.end(); ++itr){
+    txts = (*itr).first;
+    ver = (*itr).second;
+    
+    if (txts != ver->ldAcqRts()){
+      this->status_ = TransactionStatus::abort;
+      return;
+    }
+    
+    if (ver->ldAcqStatus() == VersionStatus::invisible || ver->ldAcqStatus() == VersionStatus::aborted){
+      this->status_ = TransactionStatus::abort;
+      return;
+    }
+    
+  }
 
   // read check
   for (auto itr = read_set_.begin(); itr != read_set_.end(); ++itr) {
@@ -182,11 +218,11 @@ void TxExecutor::CCcheck(){
     later_ver = nullptr;
     
     std::vector<WriteElement<Tuple>> committedWrites;
-    // version < ts(T') 
+    // version < ts(T')  
     while ((*itr).ver_->wts_ < ver->ldAcqWts()) { 
       if (ver->ldAcqStatus() == VersionStatus::committed || ver->ldAcqStatus() == VersionStatus::prepared){
         committedWrites.emplace_back((*itr).key_, (*itr).rcdptr_, later_ver, ver);
-      }
+      } 
       later_ver = ver;               
       ver = ver->ldAcqNext(); 
       if (ver == nullptr) break;
@@ -246,7 +282,7 @@ void TxExecutor::CCcheck(){
       if (ver == nullptr) break;
     }
 #if ADD_ANALYSIS
-  cres_->local_cccheck_latency_ += rdtscp() - start;
+  mres_->local_cccheck_latency_ += rdtscp() - start;
 #endif  // if ADD_ANALYSIS
   }
 
@@ -256,7 +292,7 @@ void TxExecutor::CCcheck(){
                                     std::memory_order_release);
   }
 
-  // Dependency check
+  // Dependency check 
   for (auto itr = read_set_.begin(); itr != read_set_.end(); ++itr) {
 
     // wait for all pending dependencies
@@ -265,13 +301,13 @@ void TxExecutor::CCcheck(){
     // if dependent transaction abort
     if ((*itr).ver_->ldAcqStatus() == VersionStatus::aborted) {
       this->status_ = TransactionStatus::abort;
-      return;
+      return ;
     }
   }
   
   this->status_ = TransactionStatus::commit;
+  //std::cout << "4" << std::endl;
   return ;
-
 }
 
 void TxExecutor::abort(){
@@ -283,8 +319,9 @@ void TxExecutor::abort(){
 
   read_set_.clear();
   write_set_.clear();
+  dependency_set_.clear();
 
-  this->wts_.set_clockBoost(FLAGS_clocks_per_us);
+  this->wts_.set_clockBoost(FLAGS_clocks_per_us); 
   
 }
 
@@ -297,6 +334,7 @@ void TxExecutor::commit(){
 
   read_set_.clear();
   write_set_.clear();
+  dependency_set_.clear();
 
   this->wts_.set_clockBoost(0);
   

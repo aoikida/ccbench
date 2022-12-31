@@ -39,4 +39,3 @@ public:
     return this->key_ < right.key_;
   }
 };
-

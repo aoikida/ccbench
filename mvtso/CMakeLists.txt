@@ -76,4 +76,3 @@ if (DEFINED VAL_SIZE)
 else ()
     add_definitions(-DVAL_SIZE=4)
 endif ()
-

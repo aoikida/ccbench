@@ -62,15 +62,23 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
             } else {
                 ERR;
             }
-
-            if (trans.status_ == TransactionStatus::abort) {
-                trans.abort();
-                goto RETRY;
-            }
         }
-				trans.commit();
-        storeRelease(myres.local_commit_counts_,
-                        loadAcquire(myres.local_commit_counts_) + 1);
+        trans.CCcheck();
+
+        if (trans.status_ == TransactionStatus::abort) {
+              trans.abort();
+              storeRelease(myres.local_abort_counts_,
+                         loadAcquire(myres.local_abort_counts_) + 1);
+              goto RETRY;
+        }
+        else if (trans.status_ == TransactionStatus::commit){
+          trans.commit();
+          storeRelease(myres.local_commit_counts_,
+                         loadAcquire(myres.local_commit_counts_) + 1);
+        }
+        else{
+          std::cout << "error stauts" << std::endl;
+        }
 	}
 }
 

@@ -34,7 +34,8 @@ public:
   std::vector<ReadElement<Tuple>> read_set_;
   std::vector<WriteElement<Tuple>> write_set_;
   std::vector<Procedure> pro_set_;
-  Result *cres_ = nullptr;
+  std::vector<std::pair<uint64_t, Version*>> dependency_set_;
+  Result *mres_ = nullptr;
 
   uint8_t thid_ = 0;
   uint64_t start_, stop_;
@@ -42,7 +43,7 @@ public:
   char return_val_[VAL_SIZE] = {};
   char write_val_[VAL_SIZE] = {};
 
-  TxExecutor(uint8_t thid, Result *cres) : cres_(cres), thid_(thid) {
+  TxExecutor(uint8_t thid, Result *mres) : mres_(mres), thid_(thid) {
     // wait to initialize MinWts
     wts_.generateTimeStampFirst(thid_);
     __atomic_store_n(&(ThreadWtsArray[thid_].obj_), wts_.ts_, __ATOMIC_RELEASE);

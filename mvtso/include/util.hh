@@ -23,5 +23,3 @@ extern void partTableDelete([[maybe_unused]] size_t thid, uint64_t start,
 
 extern void partTableInit([[maybe_unused]] size_t thid, uint64_t initts,
                           uint64_t start, uint64_t end);
-
-
