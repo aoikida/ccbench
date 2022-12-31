@@ -70,7 +70,8 @@ void TxExecutor::read() {
     }
 
     //validate version of tuple
-    while(ver->status_.load(memory_order_acquire) == VersionStatus::aborted) {
+    while(ver->status_.load(memory_order_acquire) == VersionStatus::aborted ||
+          ver->status_.load(memory_order_acquire) == VersionStatus::invisible) {
       ver = ver->ldAcqNext();
     }
 
@@ -81,6 +82,8 @@ void TxExecutor::read() {
     ver->rts_.store(this->wts_.ts_, memory_order_relaxed);
 
     read_set_.emplace_back((*itr).first, (*itr).second, later_ver, ver);
+
+    dependency_set_.emplace_back(ver->ldAcqWts(), ver);
 
   }
 
@@ -179,6 +182,7 @@ void TxExecutor::CCcheck(){
 
   uint64_t txts;
 
+  
   // byzantine timestamp check
   // ts(T) > localclock + δ
   if (this->wts_.ts_ > ((rdtscp() << (sizeof(thid_) * 8)) | thid_) + delta){
@@ -186,13 +190,14 @@ void TxExecutor::CCcheck(){
     return;
   }
   
-
   // byzantine dependency check
   for (auto itr = dependency_set_.begin(); itr != dependency_set_.end(); ++itr){
+    
     txts = (*itr).first;
     ver = (*itr).second;
+
     
-    if (txts != ver->ldAcqRts()){
+    if (txts != ver->ldAcqWts()){
       this->status_ = TransactionStatus::abort;
       return;
     }
@@ -203,6 +208,7 @@ void TxExecutor::CCcheck(){
     }
     
   }
+  
 
   // read check
   for (auto itr = read_set_.begin(); itr != read_set_.end(); ++itr) {
@@ -299,7 +305,6 @@ void TxExecutor::CCcheck(){
   }
   
   this->status_ = TransactionStatus::commit;
-  //std::cout << "4" << std::endl;
   return ;
 }
 
@@ -312,6 +317,7 @@ void TxExecutor::abort(){
 
   read_set_.clear();
   write_set_.clear();
+  dependency_set_.clear();
 
   this->wts_.set_clockBoost(FLAGS_clocks_per_us); 
   
@@ -326,6 +332,7 @@ void TxExecutor::commit(){
 
   read_set_.clear();
   write_set_.clear();
+  dependency_set_.clear();
 
   this->wts_.set_clockBoost(0);
   
