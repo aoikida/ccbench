@@ -74,7 +74,8 @@ void TxExecutor::read(const uint64_t key) {
   }
 
   //validate version of tuple
-  while(ver->status_.load(memory_order_acquire) == VersionStatus::aborted) {
+  while(ver->status_.load(memory_order_acquire) == VersionStatus::aborted ||
+        ver->status_.load(memory_order_acquire) == VersionStatus::invisible) {
     ver = ver->ldAcqNext();
   }
   
@@ -87,7 +88,7 @@ void TxExecutor::read(const uint64_t key) {
 
   read_set_.emplace_back(key, tuple, later_ver, ver);
 
-  dependency_set_.emplace_back(this->wts_.ts_, ver);
+  dependency_set_.emplace_back(ver->ldAcqWts(), ver);
 
 #if ADD_ANALYSIS
   mres_->local_read_latency_ += rdtscp() - start;
@@ -193,13 +194,12 @@ void TxExecutor::CCcheck(){
     return;
   }
   
-
   // byzantine dependency check
   for (auto itr = dependency_set_.begin(); itr != dependency_set_.end(); ++itr){
     txts = (*itr).first;
     ver = (*itr).second;
     
-    if (txts != ver->ldAcqRts()){
+    if (txts != ver->ldAcqWts()){
       this->status_ = TransactionStatus::abort;
       return;
     }
