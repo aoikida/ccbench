@@ -247,7 +247,7 @@ void TxExecutor::CCcheck(){
     std::vector<ReadElement<Tuple>> committedReads;
   
     // TS(T) < TS(T') 
-    while (this->wts_.ts_ < ver->ldAcqRts()) { 
+    while (this->wts_.ts_ <= ver->ldAcqRts()) { 
       if (ver->ldAcqStatus() == VersionStatus::committed || ver->ldAcqStatus() == VersionStatus::prepared){
         committedReads.emplace_back((*itr).key_, (*itr).rcdptr_, later_ver, ver);
       }
