@@ -1,4 +1,4 @@
-cd ../third_party/googletest
+cd third_party/googletest
 mkdir -p build
 cd build
 cmake ..

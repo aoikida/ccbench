@@ -1,5 +1,5 @@
 # prepare for mimalloc
-cd ../third_party/mimalloc
+cd third_party/mimalloc
 mkdir -p out/release
 cd out/release
 cmake -DCMAKE_BUILD_TYPE=Release ../..
