@@ -248,16 +248,8 @@ void TxExecutor::CCcheck(){
     std::vector<ReadElement<Tuple>> committedReads;
   
     // TS(T) < TS(T') 
-    while (this->wts_.ts_ <= ver->ldAcqRts()) { 
-      
-      // w1(x1); c1(x1); r2(x1); w(x2);の場合にabortしないようにしている。
-      if (FLAGS_thread_num == 1){
-        for (auto ritr = read_set_.begin(); ritr != read_set_.end(); ++ritr){
-          if ((*ritr).rcdptr_ == (*itr).rcdptr_){
-            goto NEXT_CHECK;
-          }
-        }
-      }
+    while (this->wts_.ts_ < ver->ldAcqRts()) { 
+
       if (ver->ldAcqStatus() == VersionStatus::committed || ver->ldAcqStatus() == VersionStatus::prepared){
         committedReads.emplace_back((*itr).key_, (*itr).rcdptr_, later_ver, ver);
       }

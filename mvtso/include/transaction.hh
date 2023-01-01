@@ -86,7 +86,7 @@ public:
   void commit();
 
   Version *newVersionGeneration([[maybe_unused]] Tuple *tuple) {
-    return new Version(this->wts_.ts_, this->wts_.ts_);
+    return new Version(0, this->wts_.ts_);
   }
 
   ReadElement<Tuple> *searchReadSet(const uint64_t key) {
