@@ -50,7 +50,7 @@ void TxExecutor::read() {
   tuple = get_tuple(Table, *itr);
 #endif  // if MASSTREE_USE
     // avoid re-read and read-own write
-    if (searchReadPairSet(*itr) || searchWriteSet(*itr)){
+    if (searchReadPairSet(*itr)){
       continue;
     } 
     read_pair_set_.emplace_back(*itr, tuple);
@@ -79,7 +79,9 @@ void TxExecutor::read() {
     memcpy(return_val_, ver->val_, VAL_SIZE);
 
     //update RTS of the version
-    ver->rts_.store(this->wts_.ts_, memory_order_relaxed);
+    if (this->wts_.ts_ > ver->ldAcqRts()){
+      ver->rts_.store(this->wts_.ts_, memory_order_relaxed);
+    }
 
     read_set_.emplace_back((*itr).first, (*itr).second, later_ver, ver);
 
@@ -247,20 +249,13 @@ void TxExecutor::CCcheck(){
     std::vector<ReadElement<Tuple>> committedReads;
   
     // TS(T) < TS(T') 
-    while (this->wts_.ts_ <= ver->ldAcqRts()) { 
+    while (this->wts_.ts_ <= ver->ldAcqRts()) {
 
-      // w1(x1); c1(x1); r2(x1); w(x2);の場合にabortしないようにしている。
-      if (FLAGS_thread_num == 1){
-        for (auto ritr = read_set_.begin(); ritr != read_set_.end(); ++ritr){
-          if ((*ritr).rcdptr_ == (*itr).rcdptr_){
-            goto NEXT_CHECK;
-          }
+      if (ver->ldAcqStatus() == VersionStatus::committed || ver->ldAcqStatus() == VersionStatus::prepared){
+        if (this->wts_.ts_ < ver->ldAcqRts()){
+          committedReads.emplace_back((*itr).key_, (*itr).rcdptr_, later_ver, ver);
         }
       }
-      if (ver->ldAcqStatus() == VersionStatus::committed || ver->ldAcqStatus() == VersionStatus::prepared){
-        committedReads.emplace_back((*itr).key_, (*itr).rcdptr_, later_ver, ver);
-      }
-NEXT_CHECK:
       later_ver = ver;               
       ver = ver->ldAcqNext(); 
       if (ver == nullptr) break;
@@ -347,4 +342,6 @@ void TxExecutor::commit(){
   this->wts_.set_clockBoost(0);
   
 }
+
+
 

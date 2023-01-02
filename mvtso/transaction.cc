@@ -40,7 +40,7 @@ void TxExecutor::read(const uint64_t key) {
   /**
    * read-own-writes or re-read from local read set.
    */
-  if (searchWriteSet(key) || searchReadSet(key)) goto FINISH_READ;
+  if (searchReadSet(key)) goto FINISH_READ;
 
   /**
    * Search versions from data structure.
@@ -84,7 +84,9 @@ void TxExecutor::read(const uint64_t key) {
   memcpy(return_val_, ver->val_, VAL_SIZE);
 
   //update RTS of the version
-  ver->rts_.store(this->wts_.ts_, memory_order_relaxed);
+  if (this->wts_.ts_ > ver->ldAcqRts()){
+      ver->rts_.store(this->wts_.ts_, memory_order_relaxed);
+  }
 
   read_set_.emplace_back(key, tuple, later_ver, ver);
 
@@ -219,31 +221,19 @@ void TxExecutor::CCcheck(){
     
     std::vector<WriteElement<Tuple>> committedWrites;
     // version < ts(T')  
-    while ((*itr).ver_->wts_ <= ver->ldAcqWts()) { 
-
-      // w1(x1); c1(x1); r2(x1); w(x2);の場合にabortしないようにしている。
-      if (FLAGS_thread_num == 1){
-        for (auto ritr = read_set_.begin(); ritr != read_set_.end(); ++ritr){
-          if ((*ritr).rcdptr_ == (*itr).rcdptr_){
-            goto NEXT_CHECK;
-          }
-        }
-      }
-
+    while ((*itr).ver_->ldAcqWts() < ver->ldAcqWts()) { 
       if (ver->ldAcqStatus() == VersionStatus::committed || ver->ldAcqStatus() == VersionStatus::prepared){
         committedWrites.emplace_back((*itr).key_, (*itr).rcdptr_, later_ver, ver);
-      }
-NEXT_CHECK:
+      } 
       later_ver = ver;               
       ver = ver->ldAcqNext(); 
       if (ver == nullptr) break;
     }
     // ts(T') < ts(T)
     for (auto committedWrite = committedWrites.begin(); committedWrite != committedWrites.end(); ++committedWrite){
-      if ((*committedWrite).new_ver_->wts_ < this->wts_.ts_){
+      if ((*committedWrite).new_ver_->ldAcqWts() < this->wts_.ts_){
         committedWrites.clear();
         this->status_ = TransactionStatus::abort;
-        std::cout << "1" << std::endl;
         return;
       }
     }
@@ -260,10 +250,13 @@ NEXT_CHECK:
     std::vector<ReadElement<Tuple>> committedReads;
   
     // TS(T) < TS(T') 
-    while (this->wts_.ts_ < ver->ldAcqRts()) { 
+    //std::cout << ver->ldAcqRts() << std::endl;
+    while (this->wts_.ts_ <= ver->ldAcqRts()) {
 
       if (ver->ldAcqStatus() == VersionStatus::committed || ver->ldAcqStatus() == VersionStatus::prepared){
-        committedReads.emplace_back((*itr).key_, (*itr).rcdptr_, later_ver, ver);
+        if (this->wts_.ts_ < ver->ldAcqRts()){
+          committedReads.emplace_back((*itr).key_, (*itr).rcdptr_, later_ver, ver);
+        }
       }
       later_ver = ver;               
       ver = ver->ldAcqNext(); 
@@ -272,10 +265,9 @@ NEXT_CHECK:
 
     //ReadSet(t')[key].version < TS(T)
     for (auto committedRead = committedReads.begin(); committedRead != committedReads.end(); ++committedRead){
-      if ((*committedRead).ver_->wts_ < this->wts_.ts_){
+      if ((*committedRead).ver_->ldAcqWts() < this->wts_.ts_){
         committedReads.clear();
         this->status_ = TransactionStatus::abort;
-        std::cout << "2" << std::endl;
         return;
       }
     }
@@ -289,7 +281,6 @@ NEXT_CHECK:
     while (ver->ldAcqStatus() == VersionStatus::invisible){
       if (ver->ldAcqRts() > this->wts_.ts_){
         this->status_ = TransactionStatus::abort;
-        std::cout << "3" << std::endl;
         return;
       }
       later_ver = ver;
@@ -316,7 +307,6 @@ NEXT_CHECK:
     // if dependent transaction abort
     if ((*itr).ver_->ldAcqStatus() == VersionStatus::aborted) {
       this->status_ = TransactionStatus::abort;
-      std::cout << "4" << std::endl;
       return ;
     }
   }
