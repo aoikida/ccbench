@@ -219,7 +219,17 @@ void TxExecutor::CCcheck(){
     
     std::vector<WriteElement<Tuple>> committedWrites;
     // version < ts(T')  
-    while ((*itr).ver_->wts_ < ver->ldAcqWts()) { 
+    while ((*itr).ver_->wts_ <= ver->ldAcqWts()) { 
+      
+      // w1(x1); c1(x1); r2(x1); w(x2);の場合にabortしないようにしている。
+      if (FLAGS_thread_num == 1){
+        for (auto ritr = read_set_.begin(); ritr != read_set_.end(); ++ritr){
+          if ((*ritr).rcdptr_ == (*itr).rcdptr_){
+            goto NEXT_CHECK;
+          }
+        }
+      }
+
       if (ver->ldAcqStatus() == VersionStatus::committed || ver->ldAcqStatus() == VersionStatus::prepared){
         committedWrites.emplace_back((*itr).key_, (*itr).rcdptr_, later_ver, ver);
       } 
@@ -232,6 +242,7 @@ void TxExecutor::CCcheck(){
       if ((*committedWrite).new_ver_->wts_ < this->wts_.ts_){
         committedWrites.clear();
         this->status_ = TransactionStatus::abort;
+        std::cout << "1" << std::endl;
         return;
       }
     }
@@ -263,6 +274,7 @@ void TxExecutor::CCcheck(){
       if ((*committedRead).ver_->wts_ < this->wts_.ts_){
         committedReads.clear();
         this->status_ = TransactionStatus::abort;
+        std::cout << "2" << std::endl;
         return;
       }
     }
@@ -276,6 +288,7 @@ void TxExecutor::CCcheck(){
     while (ver->ldAcqStatus() == VersionStatus::invisible){
       if (ver->ldAcqRts() > this->wts_.ts_){
         this->status_ = TransactionStatus::abort;
+        std::cout << "3" << std::endl;
         return;
       }
       later_ver = ver;
@@ -302,6 +315,7 @@ void TxExecutor::CCcheck(){
     // if dependent transaction abort
     if ((*itr).ver_->ldAcqStatus() == VersionStatus::aborted) {
       this->status_ = TransactionStatus::abort;
+      std::cout << "4" << std::endl;
       return ;
     }
   }
