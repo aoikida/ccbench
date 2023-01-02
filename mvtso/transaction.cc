@@ -220,7 +220,7 @@ void TxExecutor::CCcheck(){
     std::vector<WriteElement<Tuple>> committedWrites;
     // version < ts(T')  
     while ((*itr).ver_->wts_ <= ver->ldAcqWts()) { 
-      
+
       // w1(x1); c1(x1); r2(x1); w(x2);の場合にabortしないようにしている。
       if (FLAGS_thread_num == 1){
         for (auto ritr = read_set_.begin(); ritr != read_set_.end(); ++ritr){
@@ -232,7 +232,8 @@ void TxExecutor::CCcheck(){
 
       if (ver->ldAcqStatus() == VersionStatus::committed || ver->ldAcqStatus() == VersionStatus::prepared){
         committedWrites.emplace_back((*itr).key_, (*itr).rcdptr_, later_ver, ver);
-      } 
+      }
+NEXT_CHECK:
       later_ver = ver;               
       ver = ver->ldAcqNext(); 
       if (ver == nullptr) break;

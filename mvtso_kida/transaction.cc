@@ -260,6 +260,7 @@ void TxExecutor::CCcheck(){
       if (ver->ldAcqStatus() == VersionStatus::committed || ver->ldAcqStatus() == VersionStatus::prepared){
         committedReads.emplace_back((*itr).key_, (*itr).rcdptr_, later_ver, ver);
       }
+NEXT_CHECK:
       later_ver = ver;               
       ver = ver->ldAcqNext(); 
       if (ver == nullptr) break;
