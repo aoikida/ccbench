@@ -68,12 +68,14 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
 
         if (trans.status_ == TransactionStatus::abort) {
               trans.abort();
+              trans.read_operation_set_.clear();
               storeRelease(myres.local_abort_counts_,
                          loadAcquire(myres.local_abort_counts_) + 1);
               goto RETRY;
         }
         else if (trans.status_ == TransactionStatus::commit){
           trans.commit();
+          trans.read_operation_set_.clear();
           storeRelease(myres.local_commit_counts_,
                          loadAcquire(myres.local_commit_counts_) + 1);
         }
