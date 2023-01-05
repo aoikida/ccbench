@@ -38,7 +38,10 @@ void TxExecutor::read() {
   Tuple *tuple;
 
   //read-request to remote replica
-  usleep(1);
+  struct timespec timespec;
+  timespec.tv_sec = 0;
+  timespec.tv_nsec = FLAGS_sleep_time;
+  nanosleep(&timespec, NULL);
   for (auto itr = read_operation_set_.begin(); itr != read_operation_set_.end(); ++itr) {
 #if MASSTREE_USE
     tuple = MT.get_value(*itr);

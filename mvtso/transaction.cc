@@ -42,13 +42,17 @@ void TxExecutor::read(const uint64_t key) {
    */
   if (searchReadSet(key)) goto FINISH_READ;
 
+  struct timespec timespec;
+  timespec.tv_sec = 0;
+  timespec.tv_nsec = FLAGS_sleep_time;
+
   /**
    * Search versions from data structure.
    */
 #if MASSTREE_USE
   tuple = MT.get_value(key);
   // read request to remote replica
-  usleep(1);
+  nanosleep(&timespec, NULL);
 
 #if ADD_ANALYSIS
   ++mres_->local_tree_traversal_;
@@ -57,7 +61,7 @@ void TxExecutor::read(const uint64_t key) {
 #else
   tuple = get_tuple(Table, key);
   //read request to remote replica
-  usleep(1);
+  nanosleep(&timespec, NULL);
 #endif  // if MASSTREE_USE
 
  
