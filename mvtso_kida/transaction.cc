@@ -40,7 +40,7 @@ void TxExecutor::read() {
   //read-request to remote replica
   struct timespec timespec;
   timespec.tv_sec = 0;
-  timespec.tv_nsec = FLAGS_sleep_time;
+  timespec.tv_nsec = FLAGS_sleep_time_ns;
   nanosleep(&timespec, NULL);
   for (auto itr = read_operation_set_.begin(); itr != read_operation_set_.end(); ++itr) {
 #if MASSTREE_USE

@@ -31,7 +31,7 @@ alignas(CACHE_LINE_SIZE) GLOBAL MasstreeWrapper<Tuple> MT;
 #ifdef GLOBAL_VALUE_DEFINE
 DEFINE_uint64(clocks_per_us, 2133, "CPU_MHz. Use this info for measuring time."); // NOLINT
 DEFINE_uint64(extime, 3, "Execution time[sec]."); // NOLINT
-DEFINE_uint64(extime, 1000, "Sleep time[nanosec]."); // NOLINT
+DEFINE_uint64(sleep_time_ns, 1000, "Sleep time[nanosec]."); // NOLINT
 DEFINE_uint64(io_time_ns, 5, "Delay inserted instead of IO."); // NOLINT
 DEFINE_uint64(max_ope, 10, // NOLINT
               "Total number of operations per single transaction.");
@@ -46,7 +46,7 @@ DEFINE_double(zipf_skew, 0, "zipf skew. 0 ~ 0.999..."); // NOLINT
 #else
 DECLARE_uint64(clocks_per_us);
 DECLARE_uint64(extime);
-DECLARE_uint64(sleep_time);
+DECLARE_uint64(sleep_time_ns);
 DECLARE_uint64(io_time_ns);
 DECLARE_uint64(max_ope);
 DECLARE_bool(rmw);

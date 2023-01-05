@@ -44,7 +44,7 @@ void TxExecutor::read(const uint64_t key) {
 
   struct timespec timespec;
   timespec.tv_sec = 0;
-  timespec.tv_nsec = FLAGS_sleep_time;
+  timespec.tv_nsec = FLAGS_sleep_time_ns;
 
   /**
    * Search versions from data structure.
