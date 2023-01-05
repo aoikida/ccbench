@@ -316,7 +316,6 @@ void TxExecutor::CCcheck(){
   }
   
   this->status_ = TransactionStatus::commit;
-  //std::cout << "4" << std::endl;
   return ;
 }
 

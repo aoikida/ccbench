@@ -178,7 +178,6 @@ FINISH_WRITE:
 }
 
 void TxExecutor::CCcheck(){
-  //std::cout << "3" << std::endl;
 #if ADD_ANALYSIS
   uint64_t start = rdtscp();
 #endif  // if ADD_ANALYSIS
