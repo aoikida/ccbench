@@ -251,45 +251,20 @@ void TxExecutor::CCcheck(){
     ver = (*itr).rcdptr_->ldAcqLatest();
     later_ver = nullptr;  
 
-    std::vector<ReadElement<Tuple>> committedReads;
-  
-    // TS(T) < TS(T') 
+    
+    // ts(T) < RTS
     while (this->wts_.ts_ <= ver->ldAcqRts()) {
 
       if (this->wts_.ts_ < ver->ldAcqRts()){
-        if (ver->ldAcqStatus() == VersionStatus::committed || ver->ldAcqStatus() == VersionStatus::prepared){
-          committedReads.emplace_back((*itr).key_, (*itr).rcdptr_, later_ver, ver);
-        }
+        this->status_ = TransactionStatus::abort;
+        return ;
       }
       later_ver = ver;               
       ver = ver->ldAcqNext(); 
       if (ver == nullptr) break;
     }
 
-    //ReadSet(t')[key].version < TS(T)
-    for (auto committedRead = committedReads.begin(); committedRead != committedReads.end(); ++committedRead){
-      if ((*committedRead).ver_->wts_ < this->wts_.ts_){
-        committedReads.clear();
-        this->status_ = TransactionStatus::abort;
-        return;
-      }
-    }
-
-    committedReads.clear();
-
-    ver = (*itr).rcdptr_->ldAcqLatest();
-    later_ver = nullptr;
     
-    // key.RTS > ts(T)
-    while (ver->ldAcqStatus() == VersionStatus::invisible){
-      if (ver->ldAcqRts() > this->wts_.ts_){
-        this->status_ = TransactionStatus::abort;
-        return;
-      }
-      later_ver = ver;
-      ver = ver->ldAcqNext();
-      if (ver == nullptr) break;
-    }
 #if ADD_ANALYSIS
   mres_->local_cccheck_latency_ += rdtscp() - start;
 #endif  // if ADD_ANALYSIS
