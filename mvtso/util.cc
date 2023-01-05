@@ -101,6 +101,7 @@ void displayParameter() {
     cout << "#FLAGS_rmw:\t\t\t\t" << FLAGS_rmw << endl;
     cout << "#FLAGS_rratio:\t\t\t\t" << FLAGS_rratio << endl;
     cout << "#FLAGS_thread_num:\t\t\t" << FLAGS_thread_num << endl;
+    cout << "#FLAGS_tuple_num:\t\t\t" << FLAGS_tuple_num << endl;
     cout << "#FLAGS_ycsb:\t\t\t\t" << FLAGS_ycsb << endl;
     cout << "#FLAGS_zipf_skew:\t\t\t" << FLAGS_zipf_skew << endl;
 }
