@@ -193,6 +193,8 @@ void TxExecutor::CCcheck(){
   Version *ver, *later_ver;
   uint64_t txts;
 
+  /* Byzantine client check 
+
   // byzantine timestamp check
   // ts(T) > localclock + δ
   if (this->wts_.ts_ > ((rdtscp() << (sizeof(thid_) * 8)) | thid_) + delta){
@@ -216,6 +218,8 @@ void TxExecutor::CCcheck(){
     }
     
   }
+
+  */
 
   // read check
   for (auto itr = read_set_.begin(); itr != read_set_.end(); ++itr) {
@@ -254,11 +258,10 @@ void TxExecutor::CCcheck(){
     std::vector<ReadElement<Tuple>> committedReads;
   
     // TS(T) < TS(T') 
-    //std::cout << ver->ldAcqRts() << std::endl;
     while (this->wts_.ts_ <= ver->ldAcqRts()) {
 
-      if (ver->ldAcqStatus() == VersionStatus::committed || ver->ldAcqStatus() == VersionStatus::prepared){
-        if (this->wts_.ts_ < ver->ldAcqRts()){
+      if (this->wts_.ts_ < ver->ldAcqRts()){
+        if (ver->ldAcqStatus() == VersionStatus::committed || ver->ldAcqStatus() == VersionStatus::prepared){
           committedReads.emplace_back((*itr).key_, (*itr).rcdptr_, later_ver, ver);
         }
       }
