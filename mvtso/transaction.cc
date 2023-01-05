@@ -266,11 +266,6 @@ void TxExecutor::CCcheck(){
       ver = ver->ldAcqNext(); 
       if (ver == nullptr) break;
     }
-    
-
-#if ADD_ANALYSIS
-  mres_->local_cccheck_latency_ += rdtscp() - start;
-#endif  // if ADD_ANALYSIS
   }
 
   // Prepared.add(T)
@@ -291,6 +286,10 @@ void TxExecutor::CCcheck(){
       return ;
     }
   }
+
+#if ADD_ANALYSIS
+  mres_->local_cccheck_latency_ += rdtscp() - start;
+#endif  // if ADD_ANALYSIS
   
   this->status_ = TransactionStatus::commit;
   return ;
