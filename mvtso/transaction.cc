@@ -191,80 +191,26 @@ void TxExecutor::CCcheck(){
 #endif  // if ADD_ANALYSIS
 
   Version *ver, *later_ver;
-  uint64_t txts;
 
-  /* Byzantine client check 
-
-  // byzantine timestamp check
-  // ts(T) > localclock + δ
-  if (this->wts_.ts_ > ((rdtscp() << (sizeof(thid_) * 8)) | thid_) + delta){
-    this->status_ = TransactionStatus::abort;
-    return;
-  }
-  
-  // byzantine dependency check
-  for (auto itr = dependency_set_.begin(); itr != dependency_set_.end(); ++itr){
-    txts = (*itr).first;
-    ver = (*itr).second;
-    
-    if (txts != ver->ldAcqWts()){
-      this->status_ = TransactionStatus::abort;
-      return;
-    }
-    
-    if (ver->ldAcqStatus() == VersionStatus::invisible || ver->ldAcqStatus() == VersionStatus::aborted){
-      this->status_ = TransactionStatus::abort;
-      return;
-    }
-    
-  }
-
-  */
-
-  // read check
-  for (auto itr = read_set_.begin(); itr != read_set_.end(); ++itr) {
-
-    ver = (*itr).rcdptr_->ldAcqLatest();
-    later_ver = nullptr;
-    
-    std::vector<WriteElement<Tuple>> committedWrites;
-    // version < ts(T')  
-    while ((*itr).ver_->ldAcqWts() < ver->ldAcqWts()) { 
-      if (ver->ldAcqStatus() == VersionStatus::committed || ver->ldAcqStatus() == VersionStatus::prepared){
-        committedWrites.emplace_back((*itr).key_, (*itr).rcdptr_, later_ver, ver);
-      } 
-      later_ver = ver;               
-      ver = ver->ldAcqNext(); 
-      if (ver == nullptr) break;
-    }
-    // ts(T') < ts(T)
-    for (auto committedWrite = committedWrites.begin(); committedWrite != committedWrites.end(); ++committedWrite){
-      if ((*committedWrite).new_ver_->ldAcqWts() < this->wts_.ts_){
-        committedWrites.clear();
-        this->status_ = TransactionStatus::abort;
-        return;
-      }
-    }
-
-    committedWrites.clear();
-  }
-  
   //write check
   for (auto itr = write_set_.begin(); itr != write_set_.end(); ++itr) {
 
     ver = (*itr).rcdptr_->ldAcqLatest();
     later_ver = nullptr;  
-  
-    // ts(T) < RTS
-    while (this->wts_.ts_ <= ver->ldAcqRts()) {
 
-      if (this->wts_.ts_ < ver->ldAcqRts()){
-        this->status_ = TransactionStatus::abort;
-        return ;
-      }
+    while (this->wts_.ts_ <= ver->ldAcqWts()){
       later_ver = ver;               
       ver = ver->ldAcqNext(); 
-      if (ver == nullptr) break;
+    }
+
+    while(ver->ldAcqStatus() == VersionStatus::aborted || ver->ldAcqStatus() == VersionStatus::invisible){
+      later_ver = ver;               
+      ver = ver->ldAcqNext(); 
+    }
+
+    if (this->wts_.ts_ < ver->ldAcqRts()){
+      this->status_ = TransactionStatus::abort;
+      return;
     }
   }
 
