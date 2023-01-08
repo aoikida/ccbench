@@ -29,7 +29,7 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
   Result &myres = std::ref(MVTSOResult[thid]);
   FastZipf zipf(&rnd, FLAGS_zipf_skew, FLAGS_tuple_num);
 
-  std::vector<std::vector<Procedure>> abort_tx_set;
+  std::vector<std::vector<Procedure>> retry_tx_set;
   uint64_t vote_count = 0;
   uint64_t abort_count = 0;
   uint64_t commit_count = 0;
@@ -50,9 +50,9 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
   while (!loadAcquire(start)) _mm_pause();
   while (!loadAcquire(quit)){
     while (vote_count < FLAGS_vote_batch){
-      if (!abort_tx_set.empty()){
-        trans.pro_set_ = abort_tx_set[0];
-        abort_tx_set.erase(abort_tx_set.begin());
+      if (!retry_tx_set.empty()){
+        trans.pro_set_ = retry_tx_set[0];
+        retry_tx_set.erase(retry_tx_set.begin());
       }
       else{
 #if PARTITION_TABLE
@@ -94,7 +94,7 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
         trans.read_operation_set_.clear();
         vote_count += 1;
         abort_count += 1;
-        abort_tx_set.emplace_back(trans.pro_set_);
+        retry_tx_set.emplace_back(trans.pro_set_);
       }
       else if (trans.status_ == TransactionStatus::commit){
         trans.commit();
