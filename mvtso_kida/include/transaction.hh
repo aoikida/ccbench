@@ -77,7 +77,7 @@ public:
 
   void begin();
 
-  void read(const uint64_t key);
+  void read();
 
   void write(const uint64_t key);
 
