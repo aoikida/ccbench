@@ -18,12 +18,21 @@
 
 void
 worker(size_t thid, char &ready, const bool &start, const bool &quit) { 
-
 	Xoroshiro128Plus rnd;
   rnd.init();
+
+  struct timespec communication;
+  communication.tv_sec = 0;
+  communication.tv_nsec = FLAGS_comm_time_ns;
+  
   TxExecutor trans(thid, (Result*) &MVTSOResult[thid]);
   Result &myres = std::ref(MVTSOResult[thid]);
   FastZipf zipf(&rnd, FLAGS_zipf_skew, FLAGS_tuple_num);
+
+  std::vector<std::vector<Procedure>> abort_tx_set;
+  uint64_t vote_count = 0;
+  uint64_t abort_count = 0;
+  uint64_t commit_count = 0;
 
 	#ifdef Linux
     setThreadAffinity(thid);
@@ -40,6 +49,12 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
 	storeRelease(ready, 1);
   while (!loadAcquire(start)) _mm_pause();
   while (!loadAcquire(quit)){
+    while (vote_count < FLAGS_vote_batch){
+      if (!abort_tx_set.empty()){
+        trans.pro_set_ = abort_tx_set[0];
+        abort_tx_set.erase(abort_tx_set.begin());
+      }
+      else{
 #if PARTITION_TABLE
         makeProcedure(trans.pro_set_, rnd, zipf, FLAGS_tuple_num, FLAGS_max_ope, FLAGS_thread_num,
                       FLAGS_rratio, FLAGS_rmw, FLAGS_ycsb, true, thid, myres);
@@ -47,41 +62,62 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
         makeProcedure(trans.pro_set_, rnd, zipf, FLAGS_tuple_num, FLAGS_max_ope, FLAGS_thread_num,
                       FLAGS_rratio, FLAGS_rmw, FLAGS_ycsb, false, thid, myres);
 #endif
-		RETRY:
-        if (loadAcquire(quit)) break;
+      }
+      
+      if (loadAcquire(quit)) break;
 
-        trans.begin();
-        for (auto &&itr : trans.pro_set_) {
-            if ((itr).ope_ == Ope::READ) {
-                trans.read_operation_set_.emplace_back((itr).key_);
-            } else if ((itr).ope_ == Ope::WRITE) {
-                trans.write((itr).key_);
-            } else if ((itr).ope_ == Ope::READ_MODIFY_WRITE) {
-                trans.read_operation_set_.emplace_back((itr).key_);
-                trans.write((itr).key_);
-            } else {
-                ERR;
-            }
+      //Execution Phase
+      trans.begin();
+      for (auto &&itr : trans.pro_set_) {
+        if ((itr).ope_ == Ope::READ) {
+          trans.read_operation_set_.emplace_back((itr).key_);
+        } 
+        else if ((itr).ope_ == Ope::WRITE) {
+          trans.write((itr).key_);
+        } 
+        else if ((itr).ope_ == Ope::READ_MODIFY_WRITE) {
+          trans.read_operation_set_.emplace_back((itr).key_);
+          trans.write((itr).key_);
+        } 
+        else {
+          ERR;
         }
-        trans.read();
-        trans.CCcheck();
+      }
+      trans.read();
+      // emulate communication time between client and replica
+      nanosleep(&communication, NULL);
+      //prepare phase
+      trans.CCcheck();
+        
+      if (trans.status_ == TransactionStatus::abort) {
+        trans.abort();
+        trans.read_operation_set_.clear();
+        vote_count += 1;
+        abort_count += 1;
+        abort_tx_set.emplace_back(trans.pro_set_);
+      }
+      else if (trans.status_ == TransactionStatus::commit){
+        trans.commit();
+        trans.read_operation_set_.clear();
+        vote_count += 1;
+        commit_count += 1;
+      }
+    }
+    if (loadAcquire(quit)) break;
 
-        if (trans.status_ == TransactionStatus::abort) {
-              trans.abort();
-              trans.read_operation_set_.clear();
-              storeRelease(myres.local_abort_counts_,
-                         loadAcquire(myres.local_abort_counts_) + 1);
-              goto RETRY;
-        }
-        else if (trans.status_ == TransactionStatus::commit){
-          trans.commit();
-          trans.read_operation_set_.clear();
-          storeRelease(myres.local_commit_counts_,
-                         loadAcquire(myres.local_commit_counts_) + 1);
-        }
-        else{
-          std::cout << "error stauts" << std::endl;
-        }
+    // emulate communication time between client and replica
+    // vote reply spends more time than read reply, because client wait all vote reply
+    for (int i = 0; i < 5; i++){
+      nanosleep(&communication, NULL);
+    }
+    
+    storeRelease(myres.local_abort_counts_,
+                         loadAcquire(myres.local_abort_counts_) + abort_count);
+    storeRelease(myres.local_commit_counts_,
+                         loadAcquire(myres.local_commit_counts_) + commit_count);
+    vote_count = 0;
+    abort_count = 0;
+    commit_count = 0;
 	}
 }
 
