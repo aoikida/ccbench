@@ -30,8 +30,8 @@ alignas(CACHE_LINE_SIZE) GLOBAL MasstreeWrapper<Tuple> MT;
 
 #ifdef GLOBAL_VALUE_DEFINE
 DEFINE_uint64(clocks_per_us, 2133, "CPU_MHz. Use this info for measuring time."); // NOLINT
-DEFINE_uint64(extime, 3, "Execution time[sec]."); // NOLINT
-DEFINE_uint64(sleep_time_ns, 1000, "Sleep time[nanosec]."); // NOLINT
+DEFINE_uint64(extime, 10, "Execution time[sec]."); // NOLINT
+DEFINE_uint64(comm_time_ns, 1000, "communication time[nanosec]."); // NOLINT
 DEFINE_uint64(io_time_ns, 5, "Delay inserted instead of IO."); // NOLINT
 DEFINE_uint64(max_ope, 10, // NOLINT
               "Total number of operations per single transaction.");
@@ -39,14 +39,15 @@ DEFINE_bool(rmw, false, // NOLINT
             "True means read modify write, false means blind write.");
 DEFINE_uint64(rratio, 50, "read ratio of single transaction."); // NOLINT
 DEFINE_uint64(thread_num, 4, "Total number of worker threads."); // NOLINT
-DEFINE_uint64(tuple_num, 10000, "Total number of records."); // NOLINT
+DEFINE_uint64(tuple_num, 100000, "Total number of records."); // NOLINT
 DEFINE_bool(ycsb, true, // NOLINT
             "True uses zipf_skew, false uses faster random generator.");
 DEFINE_double(zipf_skew, 0, "zipf skew. 0 ~ 0.999..."); // NOLINT
+DEFINE_uint64(vote_batch, 1, "Number of vote batch"); // NOLINT
 #else
 DECLARE_uint64(clocks_per_us);
 DECLARE_uint64(extime);
-DECLARE_uint64(sleep_time_ns);
+DECLARE_uint64(comm_time_ns);
 DECLARE_uint64(io_time_ns);
 DECLARE_uint64(max_ope);
 DECLARE_bool(rmw);
@@ -55,6 +56,7 @@ DECLARE_uint64(thread_num);
 DECLARE_uint64(tuple_num);
 DECLARE_bool(ycsb);
 DECLARE_double(zipf_skew);
+DECLARE_uint64(vote_batch);
 #endif
 
 alignas(CACHE_LINE_SIZE) GLOBAL uint64_t_64byte* ThreadWtsArray;
