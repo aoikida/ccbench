@@ -31,7 +31,7 @@ alignas(CACHE_LINE_SIZE) GLOBAL MasstreeWrapper<Tuple> MT;
 #ifdef GLOBAL_VALUE_DEFINE
 DEFINE_uint64(clocks_per_us, 2133, "CPU_MHz. Use this info for measuring time."); // NOLINT
 DEFINE_uint64(extime, 10, "Execution time[sec]."); // NOLINT
-DEFINE_uint64(comm_time_ns, 1000, "communication time[nanosec]."); // NOLINT
+DEFINE_uint64(comm_time_ms, 1, "communication time[milisec]."); // NOLINT
 DEFINE_uint64(io_time_ns, 5, "Delay inserted instead of IO."); // NOLINT
 DEFINE_uint64(max_ope, 10, // NOLINT
               "Total number of operations per single transaction.");
@@ -47,7 +47,7 @@ DEFINE_uint64(vote_batch, 1, "Number of vote batch"); // NOLINT
 #else
 DECLARE_uint64(clocks_per_us);
 DECLARE_uint64(extime);
-DECLARE_uint64(comm_time_ns);
+DECLARE_uint64(comm_time_ms);
 DECLARE_uint64(io_time_ns);
 DECLARE_uint64(max_ope);
 DECLARE_bool(rmw);

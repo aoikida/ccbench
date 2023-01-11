@@ -96,7 +96,7 @@ void chkArg() {
 void displayParameter() {
     cout << "#FLAGS_clocks_per_us:\t\t\t" << FLAGS_clocks_per_us << endl;
     cout << "#FLAGS_extime:\t\t\t\t" << FLAGS_extime << endl;
-    cout << "#FLAGS_comm_time_ns:\t\t\t"<< FLAGS_comm_time_ns << endl;
+    cout << "#FLAGS_comm_time_ms:\t\t\t"<< FLAGS_comm_time_ms << endl;
     cout << "#FLAGS_io_time_ns:\t\t\t" << FLAGS_io_time_ns << endl;
     cout << "#FLAGS_max_ope:\t\t\t\t" << FLAGS_max_ope << endl;
     cout << "#FLAGS_rmw:\t\t\t\t" << FLAGS_rmw << endl;

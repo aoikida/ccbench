@@ -20,16 +20,12 @@ void
 worker(size_t thid, char &ready, const bool &start, const bool &quit) { 
 	Xoroshiro128Plus rnd;
   rnd.init();
-
-  struct timespec communication;
-  communication.tv_sec = 0;
-  communication.tv_nsec = FLAGS_comm_time_ns;
   
   TxExecutor trans(thid, (Result*) &MVTSOResult[thid]);
   Result &myres = std::ref(MVTSOResult[thid]);
   FastZipf zipf(&rnd, FLAGS_zipf_skew, FLAGS_tuple_num);
 
-  std::vector<std::vector<Procedure>> retry_tx_set;
+  std::vector<std::vector<Procedure>> abort_tx_set;
   uint64_t vote_count = 0;
   uint64_t abort_count = 0;
   uint64_t commit_count = 0;
@@ -50,9 +46,9 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
   while (!loadAcquire(start)) _mm_pause();
   while (!loadAcquire(quit)){
     while (vote_count < FLAGS_vote_batch){
-      if (!retry_tx_set.empty()){
-        trans.pro_set_ = retry_tx_set[0];
-        retry_tx_set.erase(retry_tx_set.begin());
+      if (!abort_tx_set.empty()){
+        trans.pro_set_ = abort_tx_set[0];
+        abort_tx_set.erase(abort_tx_set.begin());
       }
       else{
 #if PARTITION_TABLE
@@ -85,7 +81,7 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
       }
       trans.read();
       // emulate communication time between client and replica
-      nanosleep(&communication, NULL);
+      std::this_thread::sleep_for(std::chrono::milliseconds(FLAGS_comm_time_ms));
       //prepare phase
       trans.CCcheck();
         
@@ -94,7 +90,7 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
         trans.read_operation_set_.clear();
         vote_count += 1;
         abort_count += 1;
-        retry_tx_set.emplace_back(trans.pro_set_);
+        abort_tx_set.emplace_back(trans.pro_set_);
       }
       else if (trans.status_ == TransactionStatus::commit){
         trans.commit();
@@ -107,9 +103,7 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
 
     // emulate communication time between client and replica
     // vote reply spends more time than read reply, because client wait all vote reply
-    for (int i = 0; i < 5; i++){
-      nanosleep(&communication, NULL);
-    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(FLAGS_comm_time_ms * 3));
     
     storeRelease(myres.local_abort_counts_,
                          loadAcquire(myres.local_abort_counts_) + abort_count);

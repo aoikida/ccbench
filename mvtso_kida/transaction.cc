@@ -55,6 +55,7 @@ void TxExecutor::read() {
     read_pair_set_.emplace_back(*itr, tuple);
   }
 
+
   for(auto itr = read_pair_set_.begin(); itr != read_pair_set_.end(); ++itr){
 
     // Search version 
@@ -62,25 +63,37 @@ void TxExecutor::read() {
     later_ver = nullptr;
     ver = (*itr).second->ldAcqLatest(); 
 
+
     //read operation read latest version less than its timestamp.
     while (ver->ldAcqWts() > this->wts_.ts_) { 
       later_ver = ver;               
       ver = ver->ldAcqNext(); 
     }
 
+    // critical section (avoiding interleaving write visible at cccheck)
+
+    
+RETRY:
     //validate version of tuple
-    while(ver->status_.load(memory_order_acquire) == VersionStatus::aborted ||
+    if(ver->status_.load(memory_order_acquire) == VersionStatus::aborted ||
           ver->status_.load(memory_order_acquire) == VersionStatus::invisible) {
       ver = ver->ldAcqNext();
+      goto RETRY;
     }
-
-    //read selected version
-    memcpy(return_val_, ver->val_, VAL_SIZE);
+    else{
+      ver->lock_.w_lock();
+    }
 
     //update RTS of the version
     if (this->wts_.ts_ > ver->ldAcqRts()){
       ver->rts_.store(this->wts_.ts_, memory_order_relaxed);
     }
+
+    //unlock
+    ver->lock_.w_unlock();
+
+    //read selected version
+    memcpy(return_val_, ver->val_, VAL_SIZE);
 
     read_set_.emplace_back((*itr).first, (*itr).second, later_ver, ver);
 
@@ -180,6 +193,8 @@ void TxExecutor::CCcheck(){
 #endif  // if ADD_ANALYSIS
 
   Version *ver, *later_ver;
+
+  
   
   //write check
   for (auto itr = write_set_.begin(); itr != write_set_.end(); ++itr) {
@@ -197,6 +212,11 @@ void TxExecutor::CCcheck(){
       ver = ver->ldAcqNext(); 
     }
 
+    
+    ver->lock_.r_lock();
+    locked_version_set_.emplace_back(ver);
+    
+
     if (this->wts_.ts_ < ver->ldAcqRts()){
       this->status_ = TransactionStatus::abort;
       return;
@@ -208,6 +228,8 @@ void TxExecutor::CCcheck(){
     (*itr).new_ver_->status_.store( VersionStatus::prepared,
                                     std::memory_order_release);
   }
+
+  unlock();
 
   // Dependency check 
   for (auto itr = read_set_.begin(); itr != read_set_.end(); ++itr) {
@@ -260,4 +282,14 @@ void TxExecutor::commit(){
 
   this->wts_.set_clockBoost(0);
   
+}
+
+void TxExecutor::unlock(){
+
+  for (auto itr = locked_version_set_.begin(); itr != locked_version_set_.end(); ++itr){
+    (*itr)->lock_.r_unlock();
+  }
+
+  locked_version_set_.clear();
+
 }
