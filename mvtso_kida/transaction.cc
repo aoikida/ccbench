@@ -219,6 +219,10 @@ void TxExecutor::CCcheck(){
 
     if (this->wts_.ts_ < ver->ldAcqRts()){
       this->status_ = TransactionStatus::abort;
+      for (auto itr = write_set_.begin(); itr != write_set_.end(); ++itr){
+        (*itr).new_ver_->status_.store( VersionStatus::aborted,
+                                    std::memory_order_release);
+      }
       return;
     }
   }
@@ -229,8 +233,6 @@ void TxExecutor::CCcheck(){
                                     std::memory_order_release);
   }
 
-  unlock();
-
   // Dependency check 
   for (auto itr = read_set_.begin(); itr != read_set_.end(); ++itr) {
 
@@ -240,9 +242,15 @@ void TxExecutor::CCcheck(){
     // if dependent transaction abort
     if ((*itr).ver_->ldAcqStatus() == VersionStatus::aborted) {
       this->status_ = TransactionStatus::abort;
+      for (auto itr = write_set_.begin(); itr != write_set_.end(); ++itr){
+        (*itr).new_ver_->status_.store( VersionStatus::aborted,
+                                    std::memory_order_release);
+      }
       return ;
     }
   }
+
+  unlock();
 
 this->status_ = TransactionStatus::commit;
 
@@ -255,11 +263,6 @@ this->status_ = TransactionStatus::commit;
 
 
 void TxExecutor::abort(){
-  
-  for (auto itr = write_set_.begin(); itr != write_set_.end(); ++itr){
-    (*itr).new_ver_->status_.store( VersionStatus::aborted,
-                                    std::memory_order_release);
-  }
 
   read_set_.clear();
   write_set_.clear();
