@@ -1,4 +1,4 @@
-# MVTSO_KIDA
+# MVTSO
 
 ## How to use
 - Build masstree
@@ -37,7 +37,3 @@ default : `0`
 default : `1`
 - `VAL_SIZE` : Value of key-value size. In other words, payload size.<br>
 default : `4`
-
-## Optimization
-
-- Read Batch processing

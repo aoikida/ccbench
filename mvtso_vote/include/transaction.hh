@@ -38,6 +38,7 @@ public:
   std::vector<std::pair<uint64_t, Tuple*>> read_pair_set_;
   std::vector<std::pair<uint64_t, Version*>> dependency_set_;
   Result *mres_ = nullptr;
+  std::vector<Version *> locked_version_set_;
 
   uint8_t thid_ = 0;
   uint64_t start_, stop_;
@@ -77,7 +78,7 @@ public:
 
   void begin();
 
-  void read();
+  void read(const uint64_t key);
 
   void write(const uint64_t key);
 
@@ -86,6 +87,8 @@ public:
   void abort();
 
   void commit();
+
+  void unlock();
 
   Version *newVersionGeneration([[maybe_unused]] Tuple *tuple) {
     return new Version(this->wts_.ts_, this->wts_.ts_);
@@ -118,3 +121,4 @@ public:
     return &table[key];
   }
 };
+

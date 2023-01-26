@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 
 project(ccbench_mvtso
         VERSION 0.0.1
-        DESCRIPTION "MVTSO_kida of ccbench"
+        DESCRIPTION "MVTSO of ccbench"
         LANGUAGES CXX)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/../cmake")
