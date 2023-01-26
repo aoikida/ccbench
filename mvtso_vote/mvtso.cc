@@ -86,14 +86,12 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
         
       if (trans.status_ == TransactionStatus::abort) {
         trans.abort();
-        trans.read_operation_set_.clear();
         vote_count += 1;
         abort_count += 1;
         abort_tx_set.emplace_back(trans.pro_set_);
       }
       else if (trans.status_ == TransactionStatus::commit){
         trans.commit();
-        trans.read_operation_set_.clear();
         vote_count += 1;
         commit_count += 1;
       }

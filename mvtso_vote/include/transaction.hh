@@ -34,7 +34,6 @@ public:
   std::vector<ReadElement<Tuple>> read_set_;
   std::vector<WriteElement<Tuple>> write_set_;
   std::vector<Procedure> pro_set_;
-  std::vector<uint64_t> read_operation_set_;
   std::vector<std::pair<uint64_t, Tuple*>> read_pair_set_;
   std::vector<std::pair<uint64_t, Version*>> dependency_set_;
   Result *mres_ = nullptr;
