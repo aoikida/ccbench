@@ -8,6 +8,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <time.h>
 
 #include "include/common.hh"
 #include "include/time_stamp.hh"
@@ -37,11 +38,6 @@ void TxExecutor::read() {
 
   Tuple *tuple;
 
-  //read-request to remote replica
-  struct timespec timespec;
-  timespec.tv_sec = 0;
-  timespec.tv_nsec = FLAGS_sleep_time_ns;
-  nanosleep(&timespec, NULL);
   for (auto itr = read_operation_set_.begin(); itr != read_operation_set_.end(); ++itr) {
 #if MASSTREE_USE
     tuple = MT.get_value(*itr);
@@ -59,6 +55,7 @@ void TxExecutor::read() {
     read_pair_set_.emplace_back(*itr, tuple);
   }
 
+
   for(auto itr = read_pair_set_.begin(); itr != read_pair_set_.end(); ++itr){
 
     // Search version 
@@ -66,25 +63,41 @@ void TxExecutor::read() {
     later_ver = nullptr;
     ver = (*itr).second->ldAcqLatest(); 
 
+
     //read operation read latest version less than its timestamp.
     while (ver->ldAcqWts() > this->wts_.ts_) { 
       later_ver = ver;               
-      ver = ver->ldAcqNext(); 
+      ver = ver->ldAcqNext();
+      if (ver == nullptr) break; 
     }
 
+    // critical section (avoiding interleaving write visible at cccheck)
+
+    
+RETRY:
     //validate version of tuple
-    while(ver->status_.load(memory_order_acquire) == VersionStatus::aborted ||
+    if(ver->status_.load(memory_order_acquire) == VersionStatus::aborted ||
           ver->status_.load(memory_order_acquire) == VersionStatus::invisible) {
       ver = ver->ldAcqNext();
+      goto RETRY;
     }
+    else{
+      if (ver->lock_.w_trylock()) {
+        //update RTS of the version
+        if (this->wts_.ts_ > ver->ldAcqRts()){
+          ver->rts_.store(this->wts_.ts_, memory_order_relaxed);
+        }
+      } else {
+        this->status_ = TransactionStatus::abort;
+      }
+    }
+    
+    //unlock
+    ver->lock_.w_unlock();
+
 
     //read selected version
     memcpy(return_val_, ver->val_, VAL_SIZE);
-
-    //update RTS of the version
-    if (this->wts_.ts_ > ver->ldAcqRts()){
-      ver->rts_.store(this->wts_.ts_, memory_order_relaxed);
-    }
 
     read_set_.emplace_back((*itr).first, (*itr).second, later_ver, ver);
 
@@ -102,72 +115,78 @@ void TxExecutor::read() {
   return;
 }
 
-void TxExecutor::write(const uint64_t key){
+void TxExecutor::write(){
   
 #if ADD_ANALYSIS
   uint64_t start = rdtscp();
 #endif  // if ADD_ANALYSIS
   Tuple *tuple;
 
-  Version *expected(nullptr), *ver, *later_ver, *new_ver, *pre_ver;
-  
-  if (searchWriteSet(key)) goto FINISH_WRITE;
-
+  for (auto itr = write_operation_set_.begin(); itr != write_operation_set_.end(); ++itr) { 
 #if MASSTREE_USE
-  tuple = MT.get_value(key);
-
+    tuple = MT.get_value(*itr);
+    // read request to remote replica
 #if ADD_ANALYSIS
   ++mres_->local_tree_traversal_;
 #endif  // if ADD_ANALYSIS
-
 #else
-  tuple = get_tuple(Table, key);
+  tuple = get_tuple(Table, *itr);
 #endif  // if MASSTREE_USE
-
-  later_ver = nullptr;
-  ver = tuple->ldAcqLatest();
-
-  // decide where new version are inserted in version list.
-  while (ver->ldAcqWts() > this->wts_.ts_) {
-    later_ver = ver;
-    ver = ver->ldAcqNext();
-    if (ver == nullptr) break;
+    // avoid write own write
+    if (searchWritePairSet(*itr)){
+      continue;
+    }
+    write_pair_set_.emplace_back(*itr, tuple);
   }
 
-  new_ver = newVersionGeneration(tuple);
+  for(auto itr = write_pair_set_.begin(); itr != write_pair_set_.end(); ++itr){
 
-  for (;;) {
-    if (later_ver) {
-      pre_ver = later_ver;
-      ver = pre_ver->ldAcqNext();
-    } else {
-      ver = expected = tuple->ldAcqLatest();
-    }
-    //以下のwhile文が無いと、(ver == expected)の時、CASが失敗し続けてしまう可能性がある。
+    Version *expected(nullptr), *ver, *later_ver, *new_ver, *pre_ver;
+
+    later_ver = nullptr;
+    ver = (*itr).second->ldAcqLatest();
+
+    // decide where new version are inserted in version list.
     while (ver->ldAcqWts() > this->wts_.ts_) {
       later_ver = ver;
-      pre_ver = ver;
       ver = ver->ldAcqNext();
+      if (ver == nullptr) break;
     }
 
-    if (ver == expected) { //add latest version in version list 
-      new_ver->strRelNext(expected);
-      if (tuple->latest_.compare_exchange_strong(expected, new_ver, memory_order_acq_rel, memory_order_acquire)) {
-        break;
+    new_ver = newVersionGeneration((*itr).second);
+
+    for (;;) {
+      if (later_ver) {
+        pre_ver = later_ver;
+        ver = pre_ver->ldAcqNext();
+      } else {
+        ver = expected = (*itr).second->ldAcqLatest();
       }
-    } 
-    else { //add version in version list (except latest version)
-      new_ver->strRelNext(ver);
-      if (pre_ver->next_.compare_exchange_strong(ver, new_ver, memory_order_acq_rel, memory_order_acquire)) {
-        break;
+      //以下のwhile文が無いと、(ver == expected)の時、CASが失敗し続けてしまう可能性がある。
+      while (ver->ldAcqWts() > this->wts_.ts_) {
+        later_ver = ver;
+        pre_ver = ver;
+        ver = ver->ldAcqNext();
+      }
+
+      if (ver == expected) { //add latest version in version list 
+        new_ver->strRelNext(expected);
+        if ((*itr).second->latest_.compare_exchange_strong(expected, new_ver, memory_order_acq_rel, memory_order_acquire)) {
+          break;
+        }
+      } 
+      else { //add version in version list (except latest version)
+        new_ver->strRelNext(ver);
+        if (pre_ver->next_.compare_exchange_strong(ver, new_ver, memory_order_acq_rel, memory_order_acquire)) {
+          break;
+        }
       }
     }
+    write_set_.emplace_back((*itr).first, (*itr).second, later_ver, new_ver);
   }
-  
 
-  write_set_.emplace_back(key, tuple, later_ver, new_ver);
-
-FINISH_WRITE:
+  write_operation_set_.clear();
+  write_pair_set_.clear();
 
 #if ADD_ANALYSIS
   mres_->local_write_latency_ += rdtscp() - start;
@@ -184,6 +203,34 @@ void TxExecutor::CCcheck(){
 
   Version *ver, *later_ver;
 
+  // read check
+  for (auto itr = read_set_.begin(); itr != read_set_.end(); ++itr) {
+
+    ver = (*itr).rcdptr_->ldAcqLatest();
+    later_ver = nullptr;
+
+    std::vector<WriteElement<Tuple>> committedWrites;
+    // version < ts(T')  
+    while ((*itr).ver_->ldAcqWts() < ver->ldAcqWts()) { 
+      if (ver->ldAcqStatus() == VersionStatus::committed || ver->ldAcqStatus() == VersionStatus::prepared){
+        committedWrites.emplace_back((*itr).key_, (*itr).rcdptr_, later_ver, ver);
+      } 
+      later_ver = ver;               
+      ver = ver->ldAcqNext(); 
+      if (ver == nullptr) break;
+    }
+    // ts(T') < ts(T)
+    for (auto committedWrite = committedWrites.begin(); committedWrite != committedWrites.end(); ++committedWrite){
+      if ((*committedWrite).new_ver_->ldAcqWts() < this->wts_.ts_){
+        committedWrites.clear();
+        this->status_ = TransactionStatus::abort;
+        return;
+      }
+    }
+
+    committedWrites.clear();
+  }
+  
   //write check
   for (auto itr = write_set_.begin(); itr != write_set_.end(); ++itr) {
 
@@ -200,8 +247,22 @@ void TxExecutor::CCcheck(){
       ver = ver->ldAcqNext(); 
     }
 
+    
+    
+
+    if (ver->lock_.r_trylock()) {
+      locked_version_set_.emplace_back(ver);
+    } else {
+      this->status_ = TransactionStatus::abort;
+    }
+    
+
     if (this->wts_.ts_ < ver->ldAcqRts()){
       this->status_ = TransactionStatus::abort;
+      for (auto itr = write_set_.begin(); itr != write_set_.end(); ++itr){
+        (*itr).new_ver_->status_.store( VersionStatus::aborted,
+                                    std::memory_order_release);
+      }
       return;
     }
   }
@@ -216,29 +277,33 @@ void TxExecutor::CCcheck(){
   for (auto itr = read_set_.begin(); itr != read_set_.end(); ++itr) {
 
     // wait for all pending dependencies
-    while((*itr).ver_->ldAcqStatus() == VersionStatus::prepared){};
+    while((*itr).ver_->ldAcqStatus() == VersionStatus::prepared){
+    };
 
     // if dependent transaction abort
     if ((*itr).ver_->ldAcqStatus() == VersionStatus::aborted) {
       this->status_ = TransactionStatus::abort;
+      for (auto itr = write_set_.begin(); itr != write_set_.end(); ++itr){
+        (*itr).new_ver_->status_.store( VersionStatus::aborted,
+                                    std::memory_order_release);
+      }
       return ;
     }
   }
+
+  unlock();
+
+this->status_ = TransactionStatus::commit;
 
 #if ADD_ANALYSIS
   mres_->local_cccheck_latency_ += rdtscp() - start;
 #endif  // if ADD_ANALYSIS
   
-  this->status_ = TransactionStatus::commit;
   return ;
 }
 
+
 void TxExecutor::abort(){
-  
-  for (auto itr = write_set_.begin(); itr != write_set_.end(); ++itr){
-    (*itr).new_ver_->status_.store( VersionStatus::aborted,
-                                    std::memory_order_release);
-  }
 
   read_set_.clear();
   write_set_.clear();
@@ -263,5 +328,12 @@ void TxExecutor::commit(){
   
 }
 
+void TxExecutor::unlock(){
 
+  for (auto itr = locked_version_set_.begin(); itr != locked_version_set_.end(); ++itr){
+    (*itr)->lock_.r_unlock();
+  }
 
+  locked_version_set_.clear();
+
+}

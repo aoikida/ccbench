@@ -18,12 +18,13 @@
 
 void
 worker(size_t thid, char &ready, const bool &start, const bool &quit) { 
-
 	Xoroshiro128Plus rnd;
   rnd.init();
-  TxExecutor trans(thid, (Result*) &MVTSOResult[thid]);
   Result &myres = std::ref(MVTSOResult[thid]);
   FastZipf zipf(&rnd, FLAGS_zipf_skew, FLAGS_tuple_num);
+  std::vector<TxExecutor> batch_tx_set;
+  std::vector<std::vector<Procedure>> abort_tx_set;
+  uint64_t vote_count = 0;
 
 	#ifdef Linux
     setThreadAffinity(thid);
@@ -40,6 +41,14 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
 	storeRelease(ready, 1);
   while (!loadAcquire(start)) _mm_pause();
   while (!loadAcquire(quit)){
+    TxExecutor trans(thid, (Result*) &MVTSOResult[thid]);
+    while (vote_count < FLAGS_batch_size){
+      
+      if (!abort_tx_set.empty()){
+        trans.pro_set_ = abort_tx_set[0];
+        abort_tx_set.erase(abort_tx_set.begin());
+      }
+      else{
 #if PARTITION_TABLE
         makeProcedure(trans.pro_set_, rnd, zipf, FLAGS_tuple_num, FLAGS_max_ope, FLAGS_thread_num,
                       FLAGS_rratio, FLAGS_rmw, FLAGS_ycsb, true, thid, myres);
@@ -47,42 +56,65 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
         makeProcedure(trans.pro_set_, rnd, zipf, FLAGS_tuple_num, FLAGS_max_ope, FLAGS_thread_num,
                       FLAGS_rratio, FLAGS_rmw, FLAGS_ycsb, false, thid, myres);
 #endif
-		RETRY:
-        if (loadAcquire(quit)) break;
-
-        trans.begin();
-        for (auto &&itr : trans.pro_set_) {
-            if ((itr).ope_ == Ope::READ) {
-                trans.read_operation_set_.emplace_back((itr).key_);
-            } else if ((itr).ope_ == Ope::WRITE) {
-                trans.write((itr).key_);
-            } else if ((itr).ope_ == Ope::READ_MODIFY_WRITE) {
-                trans.read_operation_set_.emplace_back((itr).key_);
-                trans.write((itr).key_);
-            } else {
-                ERR;
-            }
+      }
+      
+      if (loadAcquire(quit)) break;
+      
+      batch_tx_set.emplace_back(trans);
+      //Execution Phase
+      trans.begin();
+      for (auto &&itr : trans.pro_set_) {
+        if ((itr).ope_ == Ope::READ) {
+          trans.read_operation_set_.emplace_back((itr).key_);
+        } 
+        else if ((itr).ope_ == Ope::WRITE) {
+          trans.write_operation_set_.emplace_back((itr).key_);
+        } 
+        else if ((itr).ope_ == Ope::READ_MODIFY_WRITE) {
+          trans.read_operation_set_.emplace_back((itr).key_);
+          trans.write_operation_set_.emplace_back((itr).key_);
+        } 
+        else {
+          ERR;
         }
-        trans.read();
-        trans.CCcheck();
+      }
+      vote_count++ ;
+    }
 
-        if (trans.status_ == TransactionStatus::abort) {
-              trans.abort();
-              trans.read_operation_set_.clear();
-              storeRelease(myres.local_abort_counts_,
+    if (loadAcquire(quit)) break;
+    // Read communication
+    std::this_thread::sleep_for(std::chrono::milliseconds(FLAGS_comm_time_ms));
+    for (auto itr = batch_tx_set.begin(); itr != batch_tx_set.end(); ++itr) {
+      (*itr).read();
+    }
+    for (auto itr = batch_tx_set.begin(); itr != batch_tx_set.end(); ++itr) {
+      (*itr).write();
+    }
+    // Prepare Phase
+    // Vote communication
+    std::this_thread::sleep_for(std::chrono::milliseconds(FLAGS_comm_time_ms * 3));
+    for (auto itr = batch_tx_set.begin(); itr != batch_tx_set.end(); ++itr) {
+      (*itr).CCcheck();
+    }
+    // Vote aggregation
+    for (auto itr = batch_tx_set.begin(); itr != batch_tx_set.end(); ++itr) {
+      if ((*itr).status_ == TransactionStatus::abort) {
+        (*itr).abort();
+        storeRelease(myres.local_abort_counts_,
                          loadAcquire(myres.local_abort_counts_) + 1);
-              goto RETRY;
-        }
-        else if (trans.status_ == TransactionStatus::commit){
-          trans.commit();
-          trans.read_operation_set_.clear();
-          storeRelease(myres.local_commit_counts_,
+        abort_tx_set.emplace_back((*itr).pro_set_);
+      }
+      else if ((*itr).status_ == TransactionStatus::commit){
+        (*itr).commit();
+        storeRelease(myres.local_commit_counts_,
                          loadAcquire(myres.local_commit_counts_) + 1);
-        }
-        else{
-          std::cout << "error stauts" << std::endl;
-        }
-	}
+      }
+      (*itr).read_operation_set_.clear();
+      (*itr).write_operation_set_.clear();
+    }
+    vote_count = 0 ;
+    batch_tx_set.clear();
+  }
 }
 
 int

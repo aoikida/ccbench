@@ -9,6 +9,7 @@
 
 #include "../../include/cache_line_size.hh"
 #include "../../include/op_element.hh"
+#include "rwlock.hh"
 
 using namespace std;
 
@@ -25,6 +26,7 @@ public:
   atomic <uint64_t> wts_;
   atomic<Version *> next_;
   atomic <VersionStatus> status_;  // commit record
+  RWLock lock_;
 
   char val_[10000]; //VAL_SIZE = 100
 

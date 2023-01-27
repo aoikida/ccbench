@@ -35,9 +35,12 @@ public:
   std::vector<WriteElement<Tuple>> write_set_;
   std::vector<Procedure> pro_set_;
   std::vector<uint64_t> read_operation_set_;
+  std::vector<uint64_t> write_operation_set_;
   std::vector<std::pair<uint64_t, Tuple*>> read_pair_set_;
+  std::vector<std::pair<uint64_t, Tuple*>> write_pair_set_;
   std::vector<std::pair<uint64_t, Version*>> dependency_set_;
   Result *mres_ = nullptr;
+  std::vector<Version *> locked_version_set_;
 
   uint8_t thid_ = 0;
   uint64_t start_, stop_;
@@ -79,13 +82,15 @@ public:
 
   void read();
 
-  void write(const uint64_t key);
+  void write();
 
   void CCcheck();
 
   void abort();
 
   void commit();
+
+  void unlock();
 
   Version *newVersionGeneration([[maybe_unused]] Tuple *tuple) {
     return new Version(this->wts_.ts_, this->wts_.ts_);
@@ -114,7 +119,16 @@ public:
     return nullptr;
   }
 
+  std::pair<uint64_t, Tuple*> *searchWritePairSet(const uint64_t key) {
+    for (auto itr = write_pair_set_.begin(); itr != write_pair_set_.end(); ++itr){
+      if ((*itr).first == key) return &(*itr);
+    }
+    return nullptr;
+  }
+
   static INLINE Tuple *get_tuple(Tuple *table, uint64_t key) {
     return &table[key];
   }
 };
+
+
