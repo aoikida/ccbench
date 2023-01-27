@@ -80,7 +80,7 @@ public:
 
   void read();
 
-  void write();
+  void write(uint64_t key);
 
   void CCcheck();
 
