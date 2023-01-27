@@ -188,20 +188,27 @@ void TxExecutor::CCcheck(){
   uint64_t start = rdtscp();
 #endif  // if ADD_ANALYSIS
 
-  
   for (auto itr = read_set_.begin(); itr != read_set_.end(); ++itr){
-    tuple_lock_list_.emplace_back((*itr).rcdptr_);
+    if((*itr).rcdptr_->lock_.w_trylock()){
+      locked_tuple_set_.emplace_back((*itr).rcdptr_);
+    }
+    else {
+      this->status_ = TransactionStatus::abort;
+      unlock();
+      return;
+    }
   }
 
   for (auto itr = write_set_.begin(); itr != write_set_.end(); ++itr){
     if (searchReadSet((*itr).rcdptr_)) continue;
-    tuple_lock_list_.emplace_back((*itr).rcdptr_);
-  }
-
-  std::sort(tuple_lock_list_.begin(), tuple_lock_list_.end());
-  
-  for (auto itr = tuple_lock_list_.begin(); itr != tuple_lock_list_.end(); ++itr){
-    (*itr)->lock_.w_lock();
+    if((*itr).rcdptr_->lock_.w_trylock()){
+      locked_tuple_set_.emplace_back((*itr).rcdptr_);
+    }
+    else {
+      this->status_ = TransactionStatus::abort;
+      unlock();
+      return;
+    }
   }
   
   Version *ver, *later_ver;
@@ -327,9 +334,9 @@ void TxExecutor::commit(){
 
 void TxExecutor::unlock(){
 
-  for (auto itr = tuple_lock_list_.begin(); itr != tuple_lock_list_.end(); ++itr){
+  for (auto itr = locked_tuple_set_.begin(); itr != locked_tuple_set_.end(); ++itr){
     (*itr)->lock_.w_unlock();
   }
-  tuple_lock_list_.clear();
+  locked_tuple_set_.clear();
 
 }
