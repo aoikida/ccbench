@@ -6,6 +6,7 @@
 #include "../../include/cache_line_size.hh"
 
 #include "version.hh"
+#include "../../include/rwlock.hh"
 
 using namespace std;
 
@@ -13,6 +14,7 @@ class Tuple {
 public:
   alignas(CACHE_LINE_SIZE)
   atomic<Version *> latest_; //このタプルの最新バージョン
+  RWLock lock_;
 
   Tuple() : latest_(nullptr){}
 

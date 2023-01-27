@@ -26,7 +26,6 @@ void TxExecutor::begin() {
   
   this->status_ = TransactionStatus::inflight; 
   
-  this->wts_.generateTimeStamp(thid_);
   __atomic_store_n(&(ThreadWtsArray[thid_].obj_), this->wts_.ts_, __ATOMIC_RELEASE);
   
 }
@@ -51,7 +50,7 @@ void TxExecutor::read() {
     // avoid re-read and read-own write
     if (searchReadPairSet(*itr)){
       continue;
-    } 
+    }
     read_pair_set_.emplace_back(*itr, tuple);
   }
 
@@ -70,32 +69,17 @@ void TxExecutor::read() {
       ver = ver->ldAcqNext();
       if (ver == nullptr) break; 
     }
-
-    // critical section (avoiding interleaving write visible at cccheck)
-
     
-RETRY:
     //validate version of tuple
-    if(ver->status_.load(memory_order_acquire) == VersionStatus::aborted ||
+    while(ver->status_.load(memory_order_acquire) == VersionStatus::aborted ||
           ver->status_.load(memory_order_acquire) == VersionStatus::invisible) {
       ver = ver->ldAcqNext();
-      goto RETRY;
     }
-    else{
-      if (ver->lock_.w_trylock()) {
-        //update RTS of the version
-        if (this->wts_.ts_ > ver->ldAcqRts()){
+  
+    if (this->wts_.ts_ > ver->ldAcqRts()){
           ver->rts_.store(this->wts_.ts_, memory_order_relaxed);
-        }
-      } else {
-        this->status_ = TransactionStatus::abort;
-      }
     }
     
-    //unlock
-    ver->lock_.w_unlock();
-
-
     //read selected version
     memcpy(return_val_, ver->val_, VAL_SIZE);
 
@@ -201,6 +185,33 @@ void TxExecutor::CCcheck(){
   uint64_t start = rdtscp();
 #endif  // if ADD_ANALYSIS
 
+  //CCcheckはlockをつけてatomicに行う.
+  //理由はまだ理解できていない. とりあえずBasilの本実装に準拠した.
+  
+  for (auto itr = read_set_.begin(); itr != read_set_.end(); ++itr){
+    if((*itr).rcdptr_->lock_.w_trylock()){
+      locked_tuple_set_.emplace_back((*itr).rcdptr_);
+    }
+    else {
+      this->status_ = TransactionStatus::abort;
+      unlock();
+      return;
+    }
+  }
+
+  for (auto itr = write_set_.begin(); itr != write_set_.end(); ++itr){
+    if (searchReadSet((*itr).rcdptr_)) continue;
+    if((*itr).rcdptr_->lock_.w_trylock()){
+      locked_tuple_set_.emplace_back((*itr).rcdptr_);
+    }
+    else {
+      this->status_ = TransactionStatus::abort;
+      unlock();
+      return;
+    }
+  }
+  
+  
   Version *ver, *later_ver;
 
   // read check
@@ -224,6 +235,7 @@ void TxExecutor::CCcheck(){
       if ((*committedWrite).new_ver_->ldAcqWts() < this->wts_.ts_){
         committedWrites.clear();
         this->status_ = TransactionStatus::abort;
+        unlock();
         return;
       }
     }
@@ -246,15 +258,6 @@ void TxExecutor::CCcheck(){
       later_ver = ver;               
       ver = ver->ldAcqNext(); 
     }
-
-    
-    
-
-    if (ver->lock_.r_trylock()) {
-      locked_version_set_.emplace_back(ver);
-    } else {
-      this->status_ = TransactionStatus::abort;
-    }
     
 
     if (this->wts_.ts_ < ver->ldAcqRts()){
@@ -263,6 +266,7 @@ void TxExecutor::CCcheck(){
         (*itr).new_ver_->status_.store( VersionStatus::aborted,
                                     std::memory_order_release);
       }
+      unlock();
       return;
     }
   }
@@ -277,8 +281,7 @@ void TxExecutor::CCcheck(){
   for (auto itr = read_set_.begin(); itr != read_set_.end(); ++itr) {
 
     // wait for all pending dependencies
-    while((*itr).ver_->ldAcqStatus() == VersionStatus::prepared){
-    };
+    while((*itr).ver_->ldAcqStatus() == VersionStatus::prepared){};
 
     // if dependent transaction abort
     if ((*itr).ver_->ldAcqStatus() == VersionStatus::aborted) {
@@ -287,13 +290,13 @@ void TxExecutor::CCcheck(){
         (*itr).new_ver_->status_.store( VersionStatus::aborted,
                                     std::memory_order_release);
       }
+      unlock();
       return ;
     }
   }
 
-  unlock();
-
-this->status_ = TransactionStatus::commit;
+  this->status_ = TransactionStatus::commit;
+  unlock(); 
 
 #if ADD_ANALYSIS
   mres_->local_cccheck_latency_ += rdtscp() - start;
@@ -324,16 +327,17 @@ void TxExecutor::commit(){
   write_set_.clear();
   dependency_set_.clear();
 
+
   this->wts_.set_clockBoost(0);
   
 }
 
 void TxExecutor::unlock(){
 
-  for (auto itr = locked_version_set_.begin(); itr != locked_version_set_.end(); ++itr){
-    (*itr)->lock_.r_unlock();
+  for (auto itr = locked_tuple_set_.begin(); itr != locked_tuple_set_.end(); ++itr){
+    (*itr)->lock_.w_unlock();
   }
-
-  locked_version_set_.clear();
+  locked_tuple_set_.clear();
 
 }
+

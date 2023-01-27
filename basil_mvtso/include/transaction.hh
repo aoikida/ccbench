@@ -40,7 +40,7 @@ public:
   std::vector<std::pair<uint64_t, Tuple*>> write_pair_set_;
   std::vector<std::pair<uint64_t, Version*>> dependency_set_;
   Result *mres_ = nullptr;
-  std::vector<Version *> locked_version_set_;
+  std::vector<Tuple *> locked_tuple_set_;
 
   uint8_t thid_ = 0;
   uint64_t start_, stop_;
@@ -96,12 +96,11 @@ public:
     return new Version(this->wts_.ts_, this->wts_.ts_);
   }
 
-  ReadElement<Tuple> *searchReadSet(const uint64_t key) {
+  bool searchReadSet(const Tuple * tuple) {
     for (auto itr = read_set_.begin(); itr != read_set_.end(); ++itr) {
-      if ((*itr).key_ == key) return &(*itr);
+      if ((*itr).rcdptr_ == tuple) return true;
     } 
-
-    return nullptr;
+    return false;
   }
 
   WriteElement<Tuple> *searchWriteSet(const uint64_t key) {

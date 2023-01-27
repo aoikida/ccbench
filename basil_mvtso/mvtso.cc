@@ -42,6 +42,7 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
   while (!loadAcquire(start)) _mm_pause();
   while (!loadAcquire(quit)){
     TxExecutor trans(thid, (Result*) &MVTSOResult[thid]);
+    trans.wts_.generateTimeStamp(thid);
     while (vote_count < FLAGS_batch_size){
       
       if (!abort_tx_set.empty()){
@@ -60,7 +61,7 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
       
       if (loadAcquire(quit)) break;
       
-      batch_tx_set.emplace_back(trans);
+      
       //Execution Phase
       trans.begin();
       for (auto &&itr : trans.pro_set_) {
@@ -78,10 +79,12 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
           ERR;
         }
       }
+      batch_tx_set.emplace_back(trans);
       vote_count++ ;
     }
 
     if (loadAcquire(quit)) break;
+    
     // Read communication
     std::this_thread::sleep_for(std::chrono::milliseconds(FLAGS_comm_time_ms));
     for (auto itr = batch_tx_set.begin(); itr != batch_tx_set.end(); ++itr) {
@@ -90,12 +93,14 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
     for (auto itr = batch_tx_set.begin(); itr != batch_tx_set.end(); ++itr) {
       (*itr).write();
     }
+
     // Prepare Phase
     // Vote communication
     std::this_thread::sleep_for(std::chrono::milliseconds(FLAGS_comm_time_ms * 3));
     for (auto itr = batch_tx_set.begin(); itr != batch_tx_set.end(); ++itr) {
       (*itr).CCcheck();
     }
+
     // Vote aggregation
     for (auto itr = batch_tx_set.begin(); itr != batch_tx_set.end(); ++itr) {
       if ((*itr).status_ == TransactionStatus::abort) {
