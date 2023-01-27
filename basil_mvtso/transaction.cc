@@ -69,6 +69,9 @@ void TxExecutor::read() {
       ver = ver->ldAcqNext();
       if (ver == nullptr) break; 
     }
+
+    // critical section (avoiding interleaving write visible at cccheck)
+
     
     //validate version of tuple
     while(ver->status_.load(memory_order_acquire) == VersionStatus::aborted ||
@@ -185,32 +188,21 @@ void TxExecutor::CCcheck(){
   uint64_t start = rdtscp();
 #endif  // if ADD_ANALYSIS
 
-  //CCcheckはlockをつけてatomicに行う.
-  //理由はまだ理解できていない. とりあえずBasilの本実装に準拠した.
   
   for (auto itr = read_set_.begin(); itr != read_set_.end(); ++itr){
-    if((*itr).rcdptr_->lock_.w_trylock()){
-      locked_tuple_set_.emplace_back((*itr).rcdptr_);
-    }
-    else {
-      this->status_ = TransactionStatus::abort;
-      unlock();
-      return;
-    }
+    tuple_lock_list_.emplace_back((*itr).rcdptr_);
   }
 
   for (auto itr = write_set_.begin(); itr != write_set_.end(); ++itr){
     if (searchReadSet((*itr).rcdptr_)) continue;
-    if((*itr).rcdptr_->lock_.w_trylock()){
-      locked_tuple_set_.emplace_back((*itr).rcdptr_);
-    }
-    else {
-      this->status_ = TransactionStatus::abort;
-      unlock();
-      return;
-    }
+    tuple_lock_list_.emplace_back((*itr).rcdptr_);
   }
+
+  std::sort(tuple_lock_list_.begin(), tuple_lock_list_.end());
   
+  for (auto itr = tuple_lock_list_.begin(); itr != tuple_lock_list_.end(); ++itr){
+    (*itr)->lock_.w_lock();
+  }
   
   Version *ver, *later_ver;
 
@@ -281,7 +273,8 @@ void TxExecutor::CCcheck(){
   for (auto itr = read_set_.begin(); itr != read_set_.end(); ++itr) {
 
     // wait for all pending dependencies
-    while((*itr).ver_->ldAcqStatus() == VersionStatus::prepared){};
+    while((*itr).ver_->ldAcqStatus() == VersionStatus::prepared){
+    };
 
     // if dependent transaction abort
     if ((*itr).ver_->ldAcqStatus() == VersionStatus::aborted) {
@@ -334,10 +327,9 @@ void TxExecutor::commit(){
 
 void TxExecutor::unlock(){
 
-  for (auto itr = locked_tuple_set_.begin(); itr != locked_tuple_set_.end(); ++itr){
+  for (auto itr = tuple_lock_list_.begin(); itr != tuple_lock_list_.end(); ++itr){
     (*itr)->lock_.w_unlock();
   }
-  locked_tuple_set_.clear();
+  tuple_lock_list_.clear();
 
 }
-

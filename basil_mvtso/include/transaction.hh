@@ -39,6 +39,7 @@ public:
   std::vector<std::pair<uint64_t, Tuple*>> read_pair_set_;
   std::vector<std::pair<uint64_t, Tuple*>> write_pair_set_;
   std::vector<std::pair<uint64_t, Version*>> dependency_set_;
+  std::vector<Tuple *> tuple_lock_list_;
   Result *mres_ = nullptr;
   std::vector<Tuple *> locked_tuple_set_;
 
