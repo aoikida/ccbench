@@ -69,11 +69,11 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
           trans.read_operation_set_.emplace_back((itr).key_);
         } 
         else if ((itr).ope_ == Ope::WRITE) {
-          trans.write_operation_set_.emplace_back((itr).key_);
+          trans.write((itr).key_);
         } 
         else if ((itr).ope_ == Ope::READ_MODIFY_WRITE) {
           trans.read_operation_set_.emplace_back((itr).key_);
-          trans.write_operation_set_.emplace_back((itr).key_);
+          trans.write((itr).key_);
         } 
         else {
           ERR;
@@ -84,16 +84,12 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
     }
 
     if (loadAcquire(quit)) break;
-    
     // Read communication
     std::this_thread::sleep_for(std::chrono::milliseconds(FLAGS_comm_time_ms));
     for (auto itr = batch_tx_set.begin(); itr != batch_tx_set.end(); ++itr) {
       (*itr).read();
     }
-    for (auto itr = batch_tx_set.begin(); itr != batch_tx_set.end(); ++itr) {
-      (*itr).write();
-    }
-
+    
     // Prepare Phase
     // Vote communication
     std::this_thread::sleep_for(std::chrono::milliseconds(FLAGS_comm_time_ms * 3));
@@ -115,7 +111,6 @@ worker(size_t thid, char &ready, const bool &start, const bool &quit) {
                          loadAcquire(myres.local_commit_counts_) + 1);
       }
       (*itr).read_operation_set_.clear();
-      (*itr).write_operation_set_.clear();
     }
     vote_count = 0 ;
     batch_tx_set.clear();

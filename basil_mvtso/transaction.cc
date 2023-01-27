@@ -102,78 +102,72 @@ void TxExecutor::read() {
   return;
 }
 
-void TxExecutor::write(){
+void TxExecutor::write(const uint64_t key){
   
 #if ADD_ANALYSIS
   uint64_t start = rdtscp();
 #endif  // if ADD_ANALYSIS
   Tuple *tuple;
 
-  for (auto itr = write_operation_set_.begin(); itr != write_operation_set_.end(); ++itr) { 
+  Version *expected(nullptr), *ver, *later_ver, *new_ver, *pre_ver;
+  
+  if (searchWriteSet(key)) goto FINISH_WRITE;
+
 #if MASSTREE_USE
-    tuple = MT.get_value(*itr);
-    // read request to remote replica
+  tuple = MT.get_value(key);
+
 #if ADD_ANALYSIS
   ++mres_->local_tree_traversal_;
 #endif  // if ADD_ANALYSIS
+
 #else
-  tuple = get_tuple(Table, *itr);
+  tuple = get_tuple(Table, key);
 #endif  // if MASSTREE_USE
-    // avoid write own write
-    if (searchWritePairSet(*itr)){
-      continue;
-    }
-    write_pair_set_.emplace_back(*itr, tuple);
+
+  later_ver = nullptr;
+  ver = tuple->ldAcqLatest();
+
+  // decide where new version are inserted in version list.
+  while (ver->ldAcqWts() > this->wts_.ts_) {
+    later_ver = ver;
+    ver = ver->ldAcqNext();
+    if (ver == nullptr) break;
   }
 
-  for(auto itr = write_pair_set_.begin(); itr != write_pair_set_.end(); ++itr){
+  new_ver = newVersionGeneration(tuple);
 
-    Version *expected(nullptr), *ver, *later_ver, *new_ver, *pre_ver;
-
-    later_ver = nullptr;
-    ver = (*itr).second->ldAcqLatest();
-
-    // decide where new version are inserted in version list.
+  for (;;) {
+    if (later_ver) {
+      pre_ver = later_ver;
+      ver = pre_ver->ldAcqNext();
+    } else {
+      ver = expected = tuple->ldAcqLatest();
+    }
+    //以下のwhile文が無いと、(ver == expected)の時、CASが失敗し続けてしまう可能性がある。
     while (ver->ldAcqWts() > this->wts_.ts_) {
       later_ver = ver;
+      pre_ver = ver;
       ver = ver->ldAcqNext();
-      if (ver == nullptr) break;
     }
 
-    new_ver = newVersionGeneration((*itr).second);
-
-    for (;;) {
-      if (later_ver) {
-        pre_ver = later_ver;
-        ver = pre_ver->ldAcqNext();
-      } else {
-        ver = expected = (*itr).second->ldAcqLatest();
+    if (ver == expected) { //add latest version in version list 
+      new_ver->strRelNext(expected);
+      if (tuple->latest_.compare_exchange_strong(expected, new_ver, memory_order_acq_rel, memory_order_acquire)) {
+        break;
       }
-      //以下のwhile文が無いと、(ver == expected)の時、CASが失敗し続けてしまう可能性がある。
-      while (ver->ldAcqWts() > this->wts_.ts_) {
-        later_ver = ver;
-        pre_ver = ver;
-        ver = ver->ldAcqNext();
-      }
-
-      if (ver == expected) { //add latest version in version list 
-        new_ver->strRelNext(expected);
-        if ((*itr).second->latest_.compare_exchange_strong(expected, new_ver, memory_order_acq_rel, memory_order_acquire)) {
-          break;
-        }
-      } 
-      else { //add version in version list (except latest version)
-        new_ver->strRelNext(ver);
-        if (pre_ver->next_.compare_exchange_strong(ver, new_ver, memory_order_acq_rel, memory_order_acquire)) {
-          break;
-        }
+    } 
+    else { //add version in version list (except latest version)
+      new_ver->strRelNext(ver);
+      if (pre_ver->next_.compare_exchange_strong(ver, new_ver, memory_order_acq_rel, memory_order_acquire)) {
+        break;
       }
     }
-    write_set_.emplace_back((*itr).first, (*itr).second, later_ver, new_ver);
   }
+  
 
-  write_operation_set_.clear();
-  write_pair_set_.clear();
+  write_set_.emplace_back(key, tuple, later_ver, new_ver);
+
+FINISH_WRITE:
 
 #if ADD_ANALYSIS
   mres_->local_write_latency_ += rdtscp() - start;
@@ -188,27 +182,20 @@ void TxExecutor::CCcheck(){
   uint64_t start = rdtscp();
 #endif  // if ADD_ANALYSIS
 
+  
   for (auto itr = read_set_.begin(); itr != read_set_.end(); ++itr){
-    if((*itr).rcdptr_->lock_.w_trylock()){
-      locked_tuple_set_.emplace_back((*itr).rcdptr_);
-    }
-    else {
-      this->status_ = TransactionStatus::abort;
-      unlock();
-      return;
-    }
+    tuple_lock_list_.emplace_back((*itr).rcdptr_);
   }
 
   for (auto itr = write_set_.begin(); itr != write_set_.end(); ++itr){
     if (searchReadSet((*itr).rcdptr_)) continue;
-    if((*itr).rcdptr_->lock_.w_trylock()){
-      locked_tuple_set_.emplace_back((*itr).rcdptr_);
-    }
-    else {
-      this->status_ = TransactionStatus::abort;
-      unlock();
-      return;
-    }
+    tuple_lock_list_.emplace_back((*itr).rcdptr_);
+  }
+
+  std::sort(tuple_lock_list_.begin(), tuple_lock_list_.end());
+  
+  for (auto itr = tuple_lock_list_.begin(); itr != tuple_lock_list_.end(); ++itr){
+    (*itr)->lock_.w_lock();
   }
   
   Version *ver, *later_ver;
@@ -334,9 +321,10 @@ void TxExecutor::commit(){
 
 void TxExecutor::unlock(){
 
-  for (auto itr = locked_tuple_set_.begin(); itr != locked_tuple_set_.end(); ++itr){
+  for (auto itr = tuple_lock_list_.begin(); itr != tuple_lock_list_.end(); ++itr){
     (*itr)->lock_.w_unlock();
   }
-  locked_tuple_set_.clear();
+  tuple_lock_list_.clear();
 
 }
+
