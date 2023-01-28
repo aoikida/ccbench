@@ -38,7 +38,7 @@ DEFINE_uint64(max_ope, 10, // NOLINT
 DEFINE_bool(rmw, false, // NOLINT
             "True means read modify write, false means blind write.");
 DEFINE_uint64(rratio, 50, "read ratio of single transaction."); // NOLINT
-DEFINE_uint64(thread_num, 10, "Total number of worker threads."); // NOLINT
+DEFINE_uint64(thread_num, 144, "Total number of worker threads."); // NOLINT
 DEFINE_uint64(tuple_num, 1000000, "Total number of records."); // NOLINT
 DEFINE_bool(ycsb, true, // NOLINT
             "True uses zipf_skew, false uses faster random generator.");

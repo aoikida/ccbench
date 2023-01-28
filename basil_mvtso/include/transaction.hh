@@ -35,10 +35,11 @@ public:
   std::vector<WriteElement<Tuple>> write_set_;
   std::vector<Procedure> pro_set_;
   std::vector<uint64_t> read_operation_set_;
+  std::vector<uint64_t> write_operation_set_;
   std::vector<std::pair<uint64_t, Tuple*>> read_pair_set_;
   std::vector<std::pair<uint64_t, Version*>> dependency_set_;
   Result *mres_ = nullptr;
-  std::vector<Tuple *> locked_tuple_set_;
+  std::vector<Tuple *> tuple_lock_list;
 
   uint8_t thid_ = 0;
   uint64_t start_, stop_;
