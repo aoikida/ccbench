@@ -39,7 +39,7 @@ public:
   std::vector<std::pair<uint64_t, Tuple*>> read_pair_set_;
   std::vector<std::pair<uint64_t, Version*>> dependency_set_;
   Result *mres_ = nullptr;
-  std::vector<Tuple *> tuple_lock_list;
+  std::vector<Tuple *> tuple_lock_list_;
 
   uint8_t thid_ = 0;
   uint64_t start_, stop_;
@@ -112,13 +112,6 @@ public:
 
   std::pair<uint64_t, Tuple*> *searchReadPairSet(const uint64_t key) {
     for (auto itr = read_pair_set_.begin(); itr != read_pair_set_.end(); ++itr){
-      if ((*itr).first == key) return &(*itr);
-    }
-    return nullptr;
-  }
-
-  std::pair<uint64_t, Tuple*> *searchWritePairSet(const uint64_t key) {
-    for (auto itr = write_pair_set_.begin(); itr != write_pair_set_.end(); ++itr){
       if ((*itr).first == key) return &(*itr);
     }
     return nullptr;
